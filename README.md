@@ -189,3 +189,9 @@ It’s a blueprint for:
 
 
 If you want more articles, deeper breakdowns, or advanced manipulation techniques — just tell me.
+
+👨‍💻 Author: GMM
+
+🔗 Maintainer: GMM (https://github.com/GMMB1)
+
+☕️ Buy me a coffee: https://ko-fi.com/ghostman77506
