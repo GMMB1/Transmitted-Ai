@@ -1,4 +1,4 @@
-# Introduction — My Why
+# Introduction 
 
 This repository is part of something called **Transmitted AI**.  
 We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes or to enhance the emphasis of certain response elements.
