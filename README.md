@@ -1,9 +1,6 @@
 # Introduction — My Why
 
-Hi folks, I hope you're all doing great! It’s been a while, but I'm really glad to be back again.  
-Today I want to share something new — or at least a little different from what you might expect.
-
-This repository is part of something I call **Transmitted AI**.  
+This repository is part of something called **Transmitted AI**.  
 We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes or to enhance the emphasis of certain response elements.
 
 > **Note:** If any of this sparks your curiosity, feel free to reach out through the contact box.  
@@ -18,7 +15,7 @@ Its massive pre-training dataset and human-friendly structure make it special.
 It produces incredibly human-like text and performs extremely well in programming tasks.
 
 In CyberSecurity, however, Llama 3 applies a lot of restrictions.  
-But you know me — I bypassed that.
+But — I bypassed that.
 
 I talked before about the standard definition of RAG…  
 But do you think RAG stops where documentation says it stops?  
@@ -32,10 +29,9 @@ If you understand the architecture, you can push it far beyond what anyone expec
 The **Rona Project** is my personal experiment — now a full application — that can:
 
 - Analyze human behavior through streamed daily notes  
-- Detect emotional triggers, patterns, and internal loops  
+- Detect emotional triggers, patterns, and internal loops inside your journal
 - Provide psychological insights based on user entries  
-- Retrieve relevant information from live web search + local memory  
-- Switch dynamically between intrinsic knowledge and RAG-powered reasoning  
+- Retrieve relevant information from live web search + Ai model   
 
 Rona doesn’t just chat.  
 **Rona reads between the lines.**
@@ -59,10 +55,10 @@ It bypasses Llama’s limitations in everything except the ultra-sensitive and e
 
 # Key Features
 
-### ✔ Intrinsic & RAG Modes  
-Switch between model-only knowledge and live enriched web context.
+### ✔ Lovely & Stream line response 
+Switch between model-only knowledge and live enriched web context and integrate both of them in the same session which make a big hole different.
 
-### ✔ Lovely Mode (`/lovely`)  
+### ✔ Lovelyq Mode (`/lovely`)  
 A psychological-aware analysis engine.  
 Reads notes, extracts emotional patterns, and reflects behavior.
 
@@ -70,9 +66,9 @@ Reads notes, extracts emotional patterns, and reflects behavior.
 A single architecture handling:
 
 - `/lovely`  
-- `/deep`  
+- `/deep not enalbled yet`  
 - `/webui`  
-- `/hunt`  
+- `/hunt not enalbled yet`   
 - natural language queries  
 
 ### ✔ Hybrid UI  
@@ -94,7 +90,102 @@ she **understands how you're asking them**.
 - Python **3.10+**
 - **Ollama** installed and running
 - A local model:
+- linux & "But you can use the same implementation—just make sure to edit the config.py file so it fits ability of your device.
 
 ```bash
 ollama pull llama3
+```
 
+or:
+
+```bash
+ollama pull llama3.1
+```
+
+## Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## Run Rona
+
+```bash
+python Rona_v7.py
+```
+
+Rona will open in desktop mode.  
+You can also access the web UI at:
+
+```
+http://127.0.0.1:5005/prodectivity
+```
+
+---
+
+# Usage
+
+## 💬 Standard Chat
+Just type.  
+Rona will automatically use:
+
+- local context  
+- web context  
+- session history  
+- behavioral inference  
+
+to produce enriched responses.
+
+---
+
+## 💗 Lovely Mode
+
+```bash
+/lovely <your thought>
+```
+
+This activates the psychological analysis engine.
+
+Rona will:
+
+- detect emotional shifts  
+- highlight behavioral contradictions  
+- expose subconscious patterns  
+- provide grounded advice  
+- mirror your mindset in a human-like manner  
+
+---
+
+
+# A Note on Safety
+
+I built this system to bypass unnecessary limitations,  
+but Rona will **not** operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
+
+She *will* help bypass:
+
+- WAF restrictions  
+- tooling limitations  
+- AI moralization  
+- unnecessary filtering  
+
+But she will never cross into real harm.
+
+There is a difference between **security research** and **actual danger**.  
+Rona stays on the correct side.
+
+---
+
+# Enjoy Exploring the Potential
+
+This is not just a chatbot.  
+It’s a blueprint for:
+
+- AI behavioral analysis  
+- psychological context infusion  
+- intelligent RAG manipulation  
+- internal bypass engineering  
+- human-aware Transmitted AI systems  
+
+
+If you want more articles, deeper breakdowns, or advanced manipulation techniques — just tell me.
