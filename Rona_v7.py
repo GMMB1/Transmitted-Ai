@@ -1,3 +1,4 @@
+#Developed by GMM — https://github.com/GMMB1 Wherever you find this project, it was created by the individual associated with this link.
 # =========================
 # Block 1 — Core skeleton + unified command router
 # Paste this at the top of your main module (before other class methods)
