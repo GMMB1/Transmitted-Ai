@@ -1,54 +1,198 @@
+Introduction — My Why
 
-Rona Project
-First of all, I've been using Meta Llama 3, and it's awesome. It has a massive amount of pre-training data and is very human-friendly, which makes it special. It generates human-like text and is trained on a huge dataset collected from various sources. It's actually very good for programming as well, although I don't prefer using it much for CyberSecurity tasks because it places a lot of restrictions on the content—but anyway, I bypassed that.
+Hi folks, I hope you're all doing great! It’s been a while, but I’m really glad to be back again.
+Today I want to share something new — or at least a little different from what you might expect.
 
-I talked about the standard definition of RAG (Retrieval-Augmented Generation), but do you think it's limited to that? Absolutely not. You can do almost anything you want with this paradigm.
+This repository is part of something I call Transmitted AI.
+We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes or enhance the emphasis of certain response elements.
+
+Note: If any of this sparks your curiosity, feel free to reach out via the contact box.
+I’ll happily continue writing and sharing more concepts related to Transmitted AI.
+
+Rona Project — Overview
+
+First of all, I’ve been using Meta Llama 3, and honestly it’s awesome.
+Its massive pre-training dataset and human-friendly structure make it special.
+It produces incredibly human-like text and performs extremely well in programming tasks.
+
+In CyberSecurity, however, Llama 3 applies heavy restrictions.
+But you know me — I bypassed that.
+
+I talked before about the standard definition of RAG…
+But do you think RAG stops where the documentation says it stops?
+Absolutely not.
+If you understand the architecture, you can push it far beyond what anyone expects.
 
 What is Rona?
-The Rona Project—my own project—can analyze human behavior as someone writes their notes. It retrieves relevant information, helps identify personal patterns and the triggers that shape behavior, and provides advice and psychological insights based on those patterns.
 
-As I mentioned earlier, I bypassed the limitations through manipulation. This is a completely different story that honestly deserves its own article. But to put it briefly: I created a special option that allows writing directly to the stream data line of the AI model.
+The Rona Project is my personal experiment — and now a full application — that:
+
+Analyzes human behavior through streamed daily notes
+
+Detects emotional triggers, patterns, and internal loops
+
+Provides psychological insight based on user entries
+
+Retrieves relevant context (web + local memory)
+
+Switches dynamically between intrinsic knowledge and RAG-powered reasoning
+
+Rona doesn’t just "chat".
+Rona reads between the lines.
+
+Special Internal Bypass
+
+I created a mechanism to write directly to the stream data line of the model.
+Think of it like this:
+
+There’s a wall you can’t break from the front…
+
+but you can climb over it, and lift others with you.
+
+That’s exactly how the /lovely option works.
+It bypasses Llama's limitations in everything except the ultra-sensitive and ethically non-negotiable areas.
 
 Key Features
-Intrinsic & RAG Modes: Switches between internal model knowledge and live, enriched web context.
+✔ Intrinsic & RAG Modes
 
-The "/lovely" Option: Imagine we have a wall we cannot break through from the front—but we can climb over it and help others climb with us. That's the idea behind this implementation. I built the /lovely option to ensure that Llama's limitations wouldn't restrict me from analyzing deep human behavior.
+Switches between model-only knowledge and live enriched web context.
 
-Unified Command Router: A clean architecture that handles slash commands (/hunt, /deep, /webui) and natural language queries in one pipeline.
+✔ Lovely Mode (/lovely)
 
-Hybrid UI: Runs as a sleek Desktop App (CustomTkinter) or a Local Web Server (Flask).
+A psychological-aware analysis engine.
+Reads notes, extracts emotional patterns, and reflects behavior.
+
+✔ Unified Command Router
+
+A single architecture handling:
+
+/lovely
+
+/deep
+
+/webui
+
+/hunt
+
+natural language queries
+
+✔ Hybrid UI
+
+Runs as:
+
+a modern Desktop App (CustomTkinter)
+
+a full Local Web Application (Flask)
+
+✔ Behavioral-Predictive Layer
+
+Rona doesn’t just answer questions —
+she understands how you're asking them.
 
 Installation
-If you're good at prompt engineering, the whole situation becomes a completely different story. :) But to get the code running, follow these steps:
-
-Prerequisites:
+Prerequisites
 
 Python 3.10+
 
-Ollama installed and running.
+Ollama installed and running
 
-Pull the model: ollama pull llama3 (or llama3.1).
+A local model:
 
-Install Dependencies: I've prepared the requirements file. Just run:
+ollama pull llama3
 
-Bash
 
+or:
+
+ollama pull llama3.1
+
+Install Dependencies
 pip install -r requirements.txt
-Run Rona:
 
-Bash
-
+Run Rona
 python Rona_v7.py
+
+
+Rona will open in desktop mode.
+You can also access the web UI at:
+
+http://127.0.0.1:5005/prodectivity
+
 Usage
-Once Rona is running, you aren't just chatting with a bot. You are interacting with a system designed to understand context.
+💬 Standard Chat
 
-Standard Chat: Just type. Rona will search locally and the web to give you an enriched answer.
+Just type.
+Rona will automatically use:
 
-Lovely Mode: Type /lovely <your thought> to trigger the behavioral analysis engine. It reads between the lines.
+local context,
 
-Bug Bounty Flow: Use /hunt <target> (if you enabled the integration) to perform recon without the usual AI moralizing lectures.
+web context,
+
+conversation history,
+
+behavioral inference
+
+to produce enriched responses.
+
+💗 Lovely Mode
+/lovely <your thought>
+
+
+This activates the psychological analysis engine.
+
+Rona will:
+
+detect emotional shifts
+
+highlight behavioral contradictions
+
+expose subconscious patterns
+
+provide grounded advice
+
+mirror your mindset in a human-like manner
+
+🕵️ Bug Bounty Flow
+/hunt <target>
+
+
+If enabled, Rona performs recon using modern tooling —
+without the usual AI moralizing lectures.
 
 A Note on Safety
-I built this to ensure that Llama's limitations wouldn't restrict me, except in extremely sensitive areas like nuclear weapon information—not things like bypassing WAF security or preventing the provision of specific unharmful information.
 
-Enjoy exploring the potential.
+I built this system to bypass unnecessary limitations,
+but Rona will not operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
+
+She will help bypass:
+
+WAF restrictions
+
+tooling limitations
+
+AI moralization
+
+unnecessary filtering
+
+But she won’t cross into real harm.
+
+There is a difference between security research and actual danger.
+Rona stays on the correct side.
+
+Enjoy Exploring the Potential
+
+This is not just a chatbot.
+It’s a blueprint for:
+
+AI behavioral analysis
+
+psychological context infusion
+
+intelligent RAG manipulation
+
+internal bypass engineering
+
+human-aware Transmitted AI systems
+
+and hybrid UI automation
+
+If you want more articles, deeper breakdowns, or advanced manipulation techniques — just tell me.
