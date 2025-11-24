@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statistics</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        // التحقق من وجود كلمة السر المخزنة في localStorage
+        const storedPassword = localStorage.getItem("appPassword");
+    
+        // إذا لم تكن كلمة السر موجودة، التوجه إلى صفحة إعداد كلمة السر
+        if (!storedPassword) {
+            window.location.href = "password.html";
+        } else if (!sessionStorage.getItem("verified")) {
+            // إذا لم يتم التحقق في الجلسة الحالية، إعادة التوجيه إلى صفحة كلمة السر
+            window.location.href = "password.html";
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="theme.js"></script>
+    <script src="stats.js"></script>
+    <style>
+        
+      
+        /* تسميات التاريخ والوحدات */
+        #filter-container label {
+            margin-right: 10px;
+            font-size: 1.4rem;
+        }
+
+        /* مدخلات التاريخ */
+        #start-date, #end-date {
+            margin-right: 10px;
+            width: 150px;
+        }
+
+        /* قائمة اختيار الوحدات */
+        #stats-unit {
+            width: 150px;
+            margin-right: 10px;
+        }
+
+        /* زر عرض الإحصائيات */
+        .showStatistics {
+            padding: 10px 10px;
+            margin: 21px;
+            background-color: var(--primary-color);
+            color: rgb(255, 255, 255);
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            max-width: 50%;
+            height: 60px;
+            border-radius: 5px;
+            align-items: center;
+                }
+
+        /* زر الرجوع */
+        #statsChart + button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            align-self: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Statistics</h1>
+        <!-- حاوية الفلتر -->
+        <div id="filter-container">
+            <label for="start-date">Start Date:</label>
+            <input type="date" id="start-date">
+            
+            <label for="stats-unit">Stats Unit:</label>
+            <select id="stats-unit">
+                <option value="daily">Daily</option>
+            </select>
+            <label for="end-date">End Date:</label>
+            <input type="date" id="end-date">
+            
+            
+            <button class="showStatistics" onclick="showStatistics()">Show Statistics</button>
+        </div>
+        
+        <!-- مكان عرض الرسم البياني -->
+        <canvas id="statsChart" style="max-width: 100%; max-height: 55%;"></canvas>
+        
+        <!-- زر الرجوع -->
+        <button onclick="window.location.href='prodectivity.html'">
+            Back to Home
+        </button>
+    </div>
+</body>
+</html>
