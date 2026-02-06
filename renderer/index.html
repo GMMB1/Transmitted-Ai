@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Daily Journal</title>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/renderer/css/styles.css">
+
+    <!-- Chart.js for statistics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <!-- Pattern Overlay for background textures -->
+    <div class="pattern-overlay"></div>
+
+    <!-- ==================== Side Menu ==================== -->
+    <div id="menu-button" class="menu-button">
+        <span></span>
+        <span></span>
+        <span></span>
+    </div>
+
+    <nav id="side-menu" class="side-menu">
+        <button class="nav-btn active" data-page="home">🏠 Home</button>
+        <button class="nav-btn" data-page="statistics">📊 Statistics</button>
+
+        <hr style="border: 1px solid var(--border-color); margin: 15px 0;">
+
+        <!-- Mobile Theme Control -->
+        <div class="mobile-theme-control">
+            <div class="mobile-theme-section">
+                <label class="mobile-theme-label">🎨 Theme</label>
+                <div class="mobile-theme-dots" id="mobile-theme-dots">
+                    <span class="mobile-dot dot-default" data-theme="default" title="Red"></span>
+                    <span class="mobile-dot dot-blue" data-theme="blue" title="Blue"></span>
+                    <span class="mobile-dot dot-pink" data-theme="pink" title="Pink"></span>
+                    <span class="mobile-dot dot-purple" data-theme="purple" title="Purple"></span>
+                    <span class="mobile-dot dot-dark" data-theme="dark" title="Dark"></span>
+                </div>
+            </div>
+            <div class="mobile-theme-section">
+                <label class="mobile-theme-label">✨ Neon</label>
+                <div class="mobile-theme-dots" id="mobile-neon-dots">
+                    <span class="mobile-dot neon-dot neon-none" data-neon="none" title="Off">✕</span>
+                    <span class="mobile-dot neon-dot neon-default" data-neon="default" title="Red"></span>
+                    <span class="mobile-dot neon-dot neon-blue" data-neon="blue" title="Blue"></span>
+                    <span class="mobile-dot neon-dot neon-pink" data-neon="pink" title="Pink"></span>
+                    <span class="mobile-dot neon-dot neon-purple" data-neon="purple" title="Purple"></span>
+                </div>
+            </div>
+        </div>
+        <div class="mobile-theme-section">
+            <label class="mobile-theme-label">🔒 Privacy</label>
+            <div class="privacy-toggle-container">
+                <label class="switch">
+                    <input type="checkbox" id="privacy-toggle">
+                    <span class="slider round"></span>
+                </label>
+                <span id="privacy-status" style="font-size: 0.8rem; opacity: 0.7;">Hidden</span>
+            </div>
+        </div>
+        </div>
+        <button id="export-backup-btn" class="nav-btn">💾 Export Backup</button>
+        <button id="import-backup-btn" class="nav-btn">📂 Import Backup</button>
+    </nav>
+
+    <!-- ==================== Main Container ==================== -->
+    <div class="container">
+        <h1>My Daily Journal</h1>
+
+        <!-- Header Content -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="flex: 1;"></div> <!-- Spacer -->
+
+            <!-- Theme Widget (Palette) -->
+            <div class="theme-widget-container">
+                <div class="theme-toggle-icon" id="theme-toggle-btn" title="Change Theme">🎨</div>
+                <div class="theme-palette" id="theme-palette">
+                    <!-- Row 1: Theme Colors -->
+                    <div class="palette-row">
+                        <span class="palette-label">Theme</span>
+                        <div class="palette-dots">
+                            <div class="palette-dot dot-default" data-theme="default" title="Default (Red)"></div>
+                            <div class="palette-dot dot-blue" data-theme="blue" title="Sky Blue"></div>
+                            <div class="palette-dot dot-pink" data-theme="pink" title="Pink"></div>
+                            <div class="palette-dot dot-purple" data-theme="purple" title="Purple"></div>
+                            <div class="palette-dot dot-dark" data-theme="dark" title="Dark Mode"></div>
+                            <div class="palette-dot dot-cream" data-theme="cream" title="Cream (Light)">☀</div>
+                            <div class="palette-dot dot-sky" data-theme="sky" title="Sky (Light)">☀</div>
+                        </div>
+                    </div>
+                    <!-- Row 2: Neon Glow Effects -->
+                    <div class="palette-row">
+                        <span class="palette-label">Neon</span>
+                        <div class="palette-dots">
+                            <div class="palette-dot neon-dot neon-none" data-neon="none" title="No Neon">✕</div>
+                            <div class="palette-dot neon-dot neon-default" data-neon="default" title="Red Neon"></div>
+                            <div class="palette-dot neon-dot neon-blue" data-neon="blue" title="Blue Neon"></div>
+                            <div class="palette-dot neon-dot neon-pink" data-neon="pink" title="Pink Neon"></div>
+                            <div class="palette-dot neon-dot neon-purple" data-neon="purple" title="Purple Neon"></div>
+                            <div class="palette-dot neon-dot neon-amber" data-neon="amber" title="Amber Neon"></div>
+                            <div class="palette-dot neon-dot neon-teal" data-neon="teal" title="Teal Neon"></div>
+                        </div>
+                    </div>
+                    <!-- Row 3: Patterns -->
+                    <div class="palette-row">
+                        <span class="palette-label">Pattern</span>
+                        <div class="palette-dots">
+                            <div class="palette-dot pattern-dot pattern-none" data-pattern="none" title="No Pattern">✕
+                            </div>
+                            <div class="palette-dot pattern-dot pattern-hex" data-pattern="hex" title="Hexagons">⬡</div>
+                            <div class="palette-dot pattern-dot pattern-paper" data-pattern="paper" title="Paper">▤
+                            </div>
+                            <div class="palette-dot pattern-dot pattern-lines" data-pattern="lines" title="Grid">▦
+                            </div>
+                            <div class="palette-dot pattern-dot pattern-curves" data-pattern="curves" title="Curved">◠
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- Action Bar (Slim Reports & History) -->
+        <div class="action-bar" style="margin-bottom: 20px;">
+            <div class="action-bar-group">
+                <button id="weekly-report-btn" class="mini-btn">📅 Weekly</button>
+                <button id="monthly-report-btn" class="mini-btn">📆 Monthly</button>
+            </div>
+            <div class="action-bar-group">
+                <button id="show-weekly-list-btn" class="mini-btn">📋 W-History</button>
+                <button id="show-monthly-list-btn" class="mini-btn">📁 M-History</button>
+            </div>
+        </div>
+
+        <!-- Flashback Button (Moved from Streak Container) -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+            <button id="random-day-btn" title="Flashback: Read a random analysis" class="secondary-btn"
+                style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.2rem;">🎲</span>
+                <span>Flashback Analysis</span>
+            </button>
+        </div>
+
+
+
+
+
+        <!-- ==================== Journal Entry Section ==================== -->
+        <section id="journal-entry-section">
+            <input type="text" id="journal-title" placeholder="Journal Title" class="journal-input">
+
+            <div class="analysis-controls" style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
+                <button id="display-analysis-btn" class="secondary-btn">📂 Display Analysis</button>
+                <div style="flex: 1;"></div>
+                <button id="open-analyze-modal-btn" class="primary-btn" style="background: var(--accent-color);">🧠 Analyze</button>
+            </div>
+            
+            <div style="margin-bottom: 10px;">
+                 <input type="date" id="journal-date" class="date-input" style="width: 100%;">
+            </div>
+
+            <textarea id="journal-details" placeholder="Write your journal entry..."
+                class="journal-textarea"></textarea>
+
+            <!-- Emoji Rating -->
+            <div class="rating-container">
+                <span id="left-emoji" class="emoji side">😔</span>
+                <span id="center-emoji" class="emoji center">😊</span>
+                <span id="right-emoji" class="emoji side">😃</span>
+            </div>
+
+            <div class="rating-slider-container">
+                <label for="daily-rating">Day Rating</label>
+                <input type="range" id="daily-rating" min="0" max="10" step="0.25" value="5">
+                <span id="rating-value">5.00/10</span>
+            </div>
+
+            <div class="journal-actions">
+                <button id="add-journal-btn" class="primary-btn">Add Journal</button>
+                <button id="show-journals-btn" class="secondary-btn">
+                    Show Journals (<span id="journal-count">0</span>)
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <!-- Popup Overlay -->
+    <div id="popup-overlay" class="popup-overlay"></div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- ==================== Journals Popup ==================== -->
+    <div id="journals-popup" class="popup">
+        <div class="popup-header">
+            <h2>📝 All Journals</h2>
+            <button id="close-journals-popup" class="close-btn">×</button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-container">
+            <input type="text" id="journal-search" class="search-input" placeholder="🔍 Search journals...">
+            <button id="clear-search-btn" class="search-btn clear-btn" title="Clear">✕</button>
+            <button id="search-btn" class="search-btn">Search</button>
+            <button id="show-favorites-btn" class="search-btn" style="background: var(--accent-color);">⭐
+                Favorites</button>
+            <button id="show-all-btn" class="search-btn" style="background: var(--secondary-color);">📋 All</button>
+        </div>
+
+        <div class="sort-controls">
+            <div class="sort-group">
+                <select id="sort-type">
+                    <option value="date">Sort by Date</option>
+                    <option value="rating">Sort by Rating</option>
+                    <option value="title">Sort by Title</option>
+                </select>
+                <select id="sort-direction">
+                    <option value="desc">Descending</option>
+                    <option value="asc">Ascending</option>
+                </select>
+            </div>
+
+            <div class="export-group">
+                <select id="export-mode">
+                    <option value="all">Export All</option>
+                    <option value="range">Date Range</option>
+                </select>
+                <div id="export-date-inputs" class="hidden">
+                    <input type="date" id="export-start">
+                    <span>→</span>
+                    <input type="date" id="export-end">
+                </div>
+                <button id="export-btn" class="export-btn">Download CSV</button>
+            </div>
+        </div>
+
+        <div id="journals-list" class="journals-grid"></div>
+    </div>
+
+    <!-- ==================== Analysis List Popup ==================== -->
+    <div id="analysis-popup" class="popup">
+        <div class="popup-header">
+            <h2>🧠 Saved Analyses</h2>
+            <button id="close-analysis-popup" class="close-btn">×</button>
+        </div>
+
+        <div class="analysis-list-container">
+             <div id="analysis-list" class="journals-grid"></div>
+        </div>
+    </div>
+
+    <!-- ==================== Weekly Report Popup ==================== -->
+    <div id="weekly-popup" class="weekly-popup">
+        <div class="weekly-toolbar">
+            <button id="close-weekly-popup" class="tool-btn">✖ Exit</button>
+
+            <div class="tool-center">
+                <select id="report-year">
+                    <!-- Years will be populated dynamically -->
+                </select>
+
+                <select id="report-month">
+                    <option value="0" disabled selected>Select Month</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+
+                <select id="report-week">
+                    <option value="0" disabled selected>Select Week</option>
+                    <option value="1">Week 1 (Days 1-7)</option>
+                    <option value="2">Week 2 (Days 8-14)</option>
+                    <option value="3">Week 3 (Days 15-21)</option>
+                    <option value="4">Week 4 (Days 22-28)</option>
+                </select>
+            </div>
+
+            <div class="tool-actions">
+                <button id="weekly-history-btn" class="tool-btn">📂 History</button>
+                <button id="save-weekly-btn" class="tool-btn save">💾 Save</button>
+            </div>
+        </div>
+
+        <div class="workspace-container">
+            <div class="panel write-panel" id="write-panel">
+                <input type="text" id="week-title" placeholder="Give your week a title...">
+                <textarea id="week-details" placeholder="Write your weekly analysis..."></textarea>
+
+                <div class="weekly-rating">
+                    <span id="weekly-emoji" class="weekly-emoji">😐</span>
+                    <input type="range" id="weekly-rating-slider" min="0" max="10" step="0.25" value="5">
+                    <span id="weekly-rating-value">5.00/10</span>
+                </div>
+            </div>
+
+            <div class="panel read-panel" id="read-panel">
+                <h3 class="panel-header">Daily Journals Reference</h3>
+                <div id="days-summary-list">
+                    <p class="placeholder-msg">Select Month & Week to load journals.</p>
+                </div>
+
+                <div id="full-day-view" class="hidden">
+                    <button id="back-to-list-btn" class="back-btn">← Back</button>
+                    <h4 id="full-day-date"></h4>
+                    <div id="full-day-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Weekly Reports List Popup ==================== -->
+    <div id="weekly-list-popup" class="weekly-list-popup">
+        <div class="list-header">
+            <h2>📂 Saved Weekly Reports</h2>
+            <div class="list-actions">
+                <button id="create-new-weekly-btn" class="primary-btn">➕ Create New</button>
+                <button id="export-weekly-btn" class="export-btn">📥 Export CSV</button>
+                <button id="close-weekly-list" class="secondary-btn">✖ Close</button>
+            </div>
+        </div>
+        <div id="weekly-reports-grid" class="reports-grid"></div>
+    </div>
+
+    <!-- ==================== Monthly Report Popup ==================== -->
+    <div id="monthly-popup" class="weekly-popup">
+        <div class="weekly-toolbar">
+            <button id="close-monthly-popup" class="tool-btn">✖ Exit</button>
+
+            <div class="tool-center">
+                <select id="monthly-report-year">
+                    <!-- Years will be populated dynamically -->
+                </select>
+
+                <select id="monthly-report-month">
+                    <option value="0" disabled selected>Select Month</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+            </div>
+
+            <div class="tool-actions">
+                <button id="view-mode-toggle" class="tool-btn">📅 Show Days</button>
+                <button id="monthly-history-btn" class="tool-btn">📂 History</button>
+                <button id="save-monthly-btn" class="tool-btn save">💾 Save</button>
+            </div>
+        </div>
+
+        <div class="workspace-container">
+            <div class="panel write-panel">
+                <input type="text" id="monthly-title" placeholder="Give your month a title...">
+                <textarea id="monthly-details" placeholder="Write your monthly analysis..."></textarea>
+
+                <div class="weekly-rating">
+                    <span id="monthly-emoji" class="weekly-emoji">😐</span>
+                    <input type="range" id="monthly-rating-slider" min="0" max="10" step="0.25" value="5">
+                    <span id="monthly-rating-value">5.00/10</span>
+                </div>
+            </div>
+
+            <div class="panel read-panel">
+                <h3 class="panel-header">Days & Weeks Reference</h3>
+                <div id="monthly-reference-list">
+                    <p class="placeholder-msg">Select a Month to load data.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Monthly Reports List Popup ==================== -->
+    <div id="monthly-list-popup" class="weekly-list-popup">
+        <div class="list-header">
+            <h2>📁 Saved Monthly Reports</h2>
+            <div class="list-actions">
+                <button id="create-new-monthly-btn" class="primary-btn">➕ Create New</button>
+                <button id="export-monthly-btn" class="export-btn">📥 Export CSV</button>
+                <button id="close-monthly-list" class="secondary-btn">✖ Close</button>
+            </div>
+        </div>
+        <div id="monthly-reports-grid" class="reports-grid"></div>
+    </div>
+
+    <!-- ==================== Statistics Page ==================== -->
+    <div id="statistics-page" class="page hidden">
+        <div class="container stats-container">
+            <div class="stats-header">
+                <h1>📊 Statistics</h1>
+
+                <!-- Date Range Controls (Top Bar) -->
+                <div class="stats-date-controls">
+                    <div class="date-input-group">
+                        <label>Start:</label>
+                        <input type="date" id="stats-start-date">
+                    </div>
+                    <div class="date-input-group">
+                        <label>End:</label>
+                        <input type="date" id="stats-end-date">
+                    </div>
+                    <button id="show-stats-btn" class="primary-btn">Show</button>
+                </div>
+            </div>
+
+            <div class="stats-layout">
+                <!-- Controls Sidebar (20%) -->
+                <div class="stats-controls-sidebar">
+                    <!-- Mode Selector -->
+                    <div class="control-section">
+                        <h3>Data Source</h3>
+                        <select id="stats-mode">
+                            <option value="journals">Daily Journals</option>
+                            <option value="weekly">Weekly Reports</option>
+                            <option value="monthly">Monthly Reports</option>
+                            <option value="both">Journals + Weekly</option>
+                        </select>
+                    </div>
+
+                    <!-- Group By -->
+                    <div class="control-section">
+                        <h3>Group By</h3>
+                        <select id="stats-grouping">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly Average</option>
+                            <option value="monthly">Monthly Average</option>
+                        </select>
+                    </div>
+
+                    <!-- Quick Range -->
+                    <div class="control-section">
+                        <h3>Quick Range</h3>
+                        <select id="quick-range-selector">
+                            <option value="custom" selected>Custom</option>
+                            <option value="week">Week</option>
+                            <option value="2weeks">2 Weeks</option>
+                            <option value="month">Month</option>
+                            <option value="3months">3 Months</option>
+                            <option value="year">Year</option>
+                        </select>
+                    </div>
+
+                    <!-- View Window -->
+                    <div class="control-section">
+                        <h3>View Window</h3>
+                        <select id="view-window-selector">
+                            <option value="7">7 Days</option>
+                            <option value="14">14 Days</option>
+                            <option value="30" selected>30 Days</option>
+                            <option value="60">60 Days</option>
+                            <option value="90">90 Days</option>
+                            <option value="all">All</option>
+                        </select>
+                        <small
+                            style="display: block; margin-top: 5px; color: var(--text-secondary); font-size: 0.8rem;">
+                            Use scroll buttons below
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Main Chart Area (80%) -->
+                <div class="stats-chart-area">
+                    <!-- Scroll Controls -->
+                    <div id="scroll-controls" class="scroll-controls" style="display: none;">
+                        <button id="scroll-left" class="scroll-btn">◀ Earlier</button>
+                        <span id="scroll-info" class="scroll-info">Showing all data</span>
+                        <button id="scroll-right" class="scroll-btn">Later ▶</button>
+                    </div>
+
+                    <!-- Chart Container -->
+                    <div class="chart-wrapper">
+                        <canvas id="stats-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <button id="back-to-home" class="secondary-btn" style="margin-top: 20px;">← Back to Home</button>
+        </div>
+    </div>
+
+    <!-- ==================== Confirmation Modal ==================== -->
+    <div id="confirm-modal" class="modal hidden">
+        <div class="modal-content">
+            <p id="confirm-message">Are you sure?</p>
+            <div class="modal-actions">
+                <button id="confirm-yes" class="danger-btn">Confirm</button>
+                <button id="confirm-no" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Quick Notes Floating Button ==================== -->
+    <div class="quick-notes-container">
+        <button id="quick-notes-btn" class="quick-notes-btn">📝</button>
+        <div id="quick-notes-panel" class="quick-notes-panel">
+            <h4>📌 Quick Notes</h4>
+            <textarea id="quick-notes-textarea" class="quick-notes-textarea"
+                placeholder="Jot down quick thoughts..."></textarea>
+        </div>
+    </div>
+
+    <!-- Hidden file input for backup import -->
+    <input type="file" id="import-file-input" accept=".json" style="display: none;">
+
+    <!-- Custom Alert Modal -->
+    <div id="custom-alert-overlay" class="custom-alert-overlay">
+        <div class="custom-alert-box">
+            <div id="custom-alert-icon" class="custom-alert-icon">ℹ️</div>
+            <div id="custom-alert-title" class="custom-alert-title">Alert</div>
+            <div id="custom-alert-message" class="custom-alert-message">Message here</div>
+            <div class="custom-alert-buttons">
+                <button id="custom-alert-cancel" class="custom-alert-btn cancel">Cancel</button>
+                <button id="custom-alert-confirm" class="custom-alert-btn confirm">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Scripts ==================== -->
+    <script src="/renderer/js/storage.js"></script>
+    <script src="/renderer/js/themes.js"></script>
+    <script src="/renderer/js/templates.js"></script>
+    <script src="/renderer/js/journal.js"></script>
+    <script src="/renderer/js/weekly.js"></script>
+    <script src="/renderer/js/monthly.js"></script>
+    <script src="/renderer/js/statistics.js"></script>
+    <script src="/renderer/js/app.js"></script>
+</body>
+
+</html>

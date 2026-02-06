@@ -1,14 +1,28 @@
-# Python virtual env
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Virtual env
 .venv/
+.venv.bak/
 venv/
 env/
 
-# Python version file
+# Local data/cache
+chroma_db/
+data/
+*.sqlite3
+config.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Tooling
 .python-version
 
-# Cache
-__pycache__/
-*.pyc
-
-# OS files
-.DS_Store
+# Local folders to ignore
+Train/

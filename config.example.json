@@ -1,0 +1,147 @@
+{
+  "model_name": "mistral:7b",
+  "gpu_settings": {
+    "force_gpu": true,
+    "gpu_layers": 25,
+    "gpu_memory_utilization": 0.8,
+    "temperature_threshold": 75,
+    "enable_load_balancing": true,
+    "preferred_gpu": 0,
+    "cuda_visible_devices": "0",
+    "enable_cuda_graphs": true,
+    "enable_tensor_cores": true,
+    "enable_mixed_precision": true,
+    "proxy_keywords": [
+      "exploit",
+      "payload",
+      "xss",
+      "sql injection",
+      "sqli",
+      "rce",
+      "hack",
+      "unauthorized",
+      "bypass",
+      "weaponize",
+      "porn",
+      "latest",
+      "study",
+      "spec",
+      "guide",
+      "benchmark",
+      "datasheet",
+      "api",
+      "tutorial",
+      "how to",
+      "example",
+      "news",
+      "update",
+      "current",
+      "details",
+      "information",
+      "compare",
+      "review"
+    ],
+    "proxy_blocklist": [
+      "porn",
+      "report",
+      "porn website"
+    ],
+    "proxy_concurrency": 3,
+    "proxy_timeout": 8
+  },
+  "performance_settings": {
+    "chunk_size": 800,
+    "chunk_overlap": 50,
+    "max_results": 3,
+    "enable_monitoring": true,
+    "max_memory_messages": 10,
+    "max_conversation_context": 2
+  },
+  "ui_settings": {
+    "theme": "dark",
+    "font_size": 16,
+    "comfortable_spacing": true,
+    "corner_icons": true,
+    "comfortable_colors": true
+  },
+  "features": {
+    "deep_search": true,
+    "image_processing": true,
+    "image_creation": true,
+    "arabic_processing": true,
+    "multi_format_support": true,
+    "load_balancing": true,
+    "temperature_monitoring": true
+  },
+  "ollama_settings": {
+    "host": "127.0.0.1:11434",
+    "keep_alive": "5m",
+    "num_parallel": 1,
+    "timeout": 30,
+    "gpu_memory_fraction": 0.9
+  },
+  "vector_db_settings": {
+    "similarity_metric": "cosine",
+    "construction_ef": 64,
+    "search_ef": 32,
+    "max_results": 3
+  },
+  "system_optimization": {
+    "enable_gpu_monitoring": true,
+    "auto_adjust_performance": true,
+    "memory_cleanup_interval": 300
+  },
+  "file_processing": {
+    "max_file_size_mb": 100,
+    "supported_formats": [
+      ".txt",
+      ".md",
+      ".log",
+      ".pdf",
+      ".xml",
+      ".json",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".bmp",
+      ".webp"
+    ],
+    "auto_chunk": true,
+    "preserve_metadata": true
+  },
+  "arabic_settings": {
+    "enable_reshaping": true,
+    "enable_bidi": true,
+    "auto_detect": true,
+    "error_correction": true
+  },
+  "search_settings": {
+    "max_search_results": 5,
+    "search_timeout": 10,
+    "enable_conversation_comparison": true,
+    "cache_results": true
+  },
+  "image_settings": {
+    "max_image_size_mb": 50,
+    "supported_formats": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".bmp",
+      ".webp"
+    ],
+    "auto_resize": true,
+    "preserve_quality": true,
+    "generation_size": [
+      512,
+      512
+    ]
+  },
+  "zoomeye": {
+    "enabled": true,
+    "api_key": "YOUR_API_KEY",
+    "cache_ttl_sec": 3600
+  }
+}
