@@ -1,8 +1,18 @@
+# Core
 customtkinter>=5.2.2
 flask>=3.0.0
 flask-cors>=4.0.0
 requests>=2.31.0
 aiohttp>=3.9.0
+pillow
+
+# Optional (enable extra features)
 ollama>=0.1.6
 chromadb>=0.4.22
+langchain
+langchain-ollama
+psutil
+pdfplumber
+spacy
+nltk
 language_tool_python>=2.7.1
