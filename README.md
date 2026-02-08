@@ -1,7 +1,7 @@
 # Introduction 
 
 This repository is part of something called **Transmitted AI**.  
-We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes or to enhance the emphasis of certain response elements.
+We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes or enhancement and  emphasis of certain response elements.
 
 > **Note:** If any of this sparks your curiosity, feel free to reach out through the contact box.  
 > I’ll gladly continue creating and sharing more ideas and discussions related to Transmitted AI in the future.
@@ -31,7 +31,9 @@ The **Rona Project** is my personal experiment — now a full application — th
 - Analyze human behavior through streamed daily notes  
 - Detect emotional triggers, patterns, and internal loops inside your journal
 - Provide psychological insights based on user entries  
-- Retrieve relevant information from live web search + Ai model   
+- Retrieve relevant information from live web search + Ai model
+- Increasing the quality of response through sessions-based training.
+- Fast results with brief knowledge can be obtained from crowling search engine by using `what is`.
 
 Rona doesn’t just chat.  
 **Rona reads between the lines.**
@@ -65,22 +67,24 @@ Reads notes, extracts emotional patterns, and reflects behavior.
 ### ✔ Unified Command Router  
 A single architecture handling:
 
-- `/lovely`  
+- `/lovely`
+- `/lovely`
+- `/tr`  
 - `/deep not enalbled yet`  
 - `/webui`  
 - `/hunt not enalbled yet`   
-- natural language queries  
+- `natural language queries`  
 
 ### ✔ Hybrid UI  
 Runs as:
 
 - a modern Desktop App (CustomTkinter)  
-- a full Local Web Application (Flask)  
+- a full Local Web Application (Flask) -integrated with my friend’s open-source project
 
 ### ✔ Behavioral-Predictive Layer  
 Rona doesn’t just answer questions —  
 she **understands how you're asking them**.
-
+With additional features on the web version, allowing you to get analyses for a selected time period or weekly reports.
 ---
 
 # Installation
@@ -142,6 +146,11 @@ to produce enriched responses.
 
 ```bash
 /lovely <your thought>
+```
+
+For analyzing:
+```bash
+/lovelyq your query + Journal entry on the web version via click on predictive button.
 ```
 
 This activates the psychological analysis engine.
