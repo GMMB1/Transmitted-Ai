@@ -178,8 +178,7 @@ Rona will:
 
 # A Note on Safety
 
-I built this system to bypass unnecessary limitations,  
-but Rona will **not** operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
+I built this system to help me with my studies and with analyzing myself, and also to play around a bit with a few things related to jailbreaking. but Rona will **not** operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
 
 She *will* help bypass:
 
@@ -188,10 +187,16 @@ She *will* help bypass:
 - AI moralization  
 - unnecessary filtering  
 
-But she will never cross into real harm.
+Ans she will never cross into real harm.
 
 There is a difference between **security research** and **actual danger**.  
-Rona stays on the correct side.
+Rona remains on the ethical side and supports security researchers and students in achieving their goals by:
+
+By being distinctive in how it delivers answers — using emphasis on key symbolic words. For example:
+`what is` would give a brief, concise answer along with sources from the web by crawling the Google engine.
+But `give me` would provide more detailed information, in addition to other features like `compare between`, `fact`, `how,` will give
+you the desired responses, in addition of course to handling natural language.
+
 
 ---
 
@@ -204,10 +209,10 @@ It’s a blueprint for:
 - psychological context infusion  
 - intelligent RAG manipulation  
 - internal bypass engineering  
-- human-aware Transmitted AI systems  
+- human-aware Transmitted AI systems
+- natural language process
 
-
-If you want more articles, deeper breakdowns, or advanced manipulation techniques — just tell me.
+If you want more Clarification., deeper breakdowns, or advanced manipulation techniques — be free to reach me.
 
 👨‍💻 Author: GMM
 
