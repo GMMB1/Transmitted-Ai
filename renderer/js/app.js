@@ -167,7 +167,13 @@ const App = {
             // For end date, we need last day of month
             const lastDay = new Date(eY, eM, 0).getDate();
             const endDate = `${eY}-${eM.padStart(2, '0')}-${lastDay}`;
-            
+
+            // Validate that start is not after end
+            if (startDate > endDate) {
+                Toast.warning(`Start date (${startDate}) is after end date (${endDate}). Please swap them.`);
+                return;
+            }
+
             // Show Loading
             document.body.removeChild(overlay);
             this.showAnalysisLoadingAndFetch(startDate, endDate);

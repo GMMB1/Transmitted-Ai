@@ -3114,6 +3114,13 @@ def _create_flask_app(app_ctx: "RonaAppEnhanced") -> Flask:
         if not start_date or not end_date:
             return jsonify({"ok": False, "error": "Missing start_date or end_date"}), 400
 
+        # Validate that start is before or equal to end
+        if start_date > end_date:
+            return jsonify({
+                "ok": False,
+                "error": f"Start date ({start_date}) cannot be after end date ({end_date}). Please swap the dates."
+            }), 400
+
         # Read journals
         entries = _read_entries()
         
