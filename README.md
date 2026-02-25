@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/rona.png" width="120" alt="Rona Logo"/>
+  <img src="assets/rona1.png" width="160" alt="Rona Logo"/>
 </div>
 
 # Introduction
@@ -302,6 +302,66 @@ It's distinctive in how it delivers answers — key symbolic words carry weight:
 - `give me` → detailed information
 - `compare between`, `fact`, `how` → structured, in-depth responses
 - Plus full natural language support
+
+---
+
+---
+
+# ⚠️ Common Issues & Fixes
+
+## `ModuleNotFoundError: No module named 'customtkinter'` (or any other module)
+
+This means the dependencies were installed into a **different Python environment** than the one being used to run the app.  
+The fix is to always use a **virtual environment**:
+
+### Windows (PowerShell)
+
+```powershell
+# If PowerShell blocks scripts, run this ONCE first:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Then:
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python Rona_v9_4.py
+```
+
+### Windows (CMD)
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+python Rona_v9_4.py
+```
+
+### Linux / macOS
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python Rona_v9_4.py
+```
+
+> **Rule:** Always activate the virtual environment before running `pip install` or `python Rona_v9_4.py`.  
+> You'll see `(.venv)` at the start of your terminal prompt when it's active.
+
+---
+
+## Ollama not found / model not responding
+
+```bash
+# Make sure Ollama is running
+ollama serve
+
+# Check your model is downloaded
+ollama list
+
+# Pull a model if missing
+ollama pull llama3.1
+```
 
 ---
 
