@@ -47,7 +47,9 @@ Fix:
   Always activate the virtual environment BEFORE running pip or python.
   You should see (.venv) at the start of your terminal prompt.
 
-  Windows (CMD):        .venv\Scripts\activate.bat
+  rmdir /s /q .venv
+  py -m venv .venv
+  Windows (CMD):        .venv\Scripts\activate
   Windows (PowerShell): .venv\Scripts\Activate.ps1
   Linux / macOS:        source .venv/bin/activate
 
