@@ -11,38 +11,42 @@ We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and th
 # Rona Project — Overview
 
 First of all, I've been using **Meta Llama 3**, and honestly it's awesome,
-Its massive pre-training dataset and human-friendly structure make it special-You can set whatever model you want just change the line 6506.  
+Its massive pre-training dataset and human-friendly structure make it special- You can also set whatever model you want just change the line 6506.  
 It produces incredibly human-like text and performs extremely well in programming tasks.
 
 In CyberSecurity, however, Llama 3 applies a lot of restrictions.  
-But — I bypassed that.
+But — I bypassed that by adjustments I made to achieve specific outcomes and enhance certain aspects of the response .
 
 I talked before about the standard definition of RAG…  
 But do you think RAG stops where documentation says it stops?  
 **Absolutely not.**  
-If you understand the architecture, you can push it far beyond what anyone expects.
+Once you truly understand the architecture, you can take it far beyond expectations.
 
 ---
 
 # What is Rona?
 
-The **Rona Project** is my personal experiment — now a full application — that can:
+The **Rona Project** is my personal experiment — Now a full application — that can:
 
 - Analyze human behavior through streamed daily notes  
 - Detect emotional triggers, patterns, and internal loops inside your journal
+- Frendily web ui interfance to entering your daily note with weekly and monthly input analysis features.
 - Provide psychological insights based on user entries  
 - Retrieve relevant information from live web search + Ai model
 - Increasing the quality of response through sessions-based training.
 - Fast results with brief knowledge can be obtained from crowling search engine by using `what is`.
+  
 
-Rona doesn’t just chat.  
+Rona doesn’t just chat.
+
 **Rona reads between the lines.**
 
 ---
 
 ## Special Internal Bypass
 
-I created a mechanism to write directly to the **stream data line** of the model.
+I created a mechanism to write directly to the **stream data line** of the model by manipulating speech patterns.
+
 
 Think of it like this:
 
@@ -50,7 +54,7 @@ Think of it like this:
 >  
 > but you can climb over it, and lift others with you.
 
-That's exactly how the **/lovely** option works.  
+That's exactly how the **/lovely** + session based syntax  works.  
 It bypasses Llama’s limitations in everything except the ultra-sensitive and ethically non-negotiable areas.
 
 ---
@@ -60,7 +64,7 @@ It bypasses Llama’s limitations in everything except the ultra-sensitive and e
 ### ✔ Lovely & Stream line response 
 Switch between model-only knowledge and live enriched web context and integrate both of them in the same session which make a big hole different.
 
-### ✔ Lovelyq Mode (`/lovely`)  
+### ✔ Lovelyq Mode (`/lovelyq`)  
 A psychological-aware analysis engine.  
 Reads notes, extracts emotional patterns, and reflects behavior.
 
@@ -68,10 +72,10 @@ Reads notes, extracts emotional patterns, and reflects behavior.
 A single architecture handling:
 
 - `/lovely`
-- `/lovely`
-- `/tr`  
+- `/lovelyq`
+- `/tr ` translate en to ar  
 - `/deep not enalbled yet`  
-- `/webui`  
+- `/webui` start web interface
 - `/hunt not enalbled yet`   
 - `natural language queries`  
 
@@ -85,7 +89,8 @@ Runs as:
 
 Rona doesn’t just answer questions —  
 she **understands how you're asking them**.
-With additional features on the web version, allowing you to get analyses for a selected time period or weekly reports.
+
+With additional features on the web version; Allowing you to get analyses for a selected time period or weekly reports.
 
 ---
 
@@ -121,10 +126,10 @@ python Rona_v7.py
 ```
 
 Rona will open in desktop mode.  
-You can also access the web UI at:
+You can also access the web UI with clicking on Open Predictive:
 
 ```
-http://127.0.0.1:5005/prodectivity
+http://127.0.0.1:5005/renderer
 ```
 
 ---
@@ -135,10 +140,11 @@ http://127.0.0.1:5005/prodectivity
 Just type.  
 Rona will automatically use:
 
-- local context  
+- Ai model  
 - web context  
-- session history  
-- behavioral inference  
+- session history
+- json data train -But it still needs normalization and correction if
+  you want to used in every type of json.  
 
 to produce enriched responses.
 
@@ -147,13 +153,15 @@ to produce enriched responses.
 ## 💗 Lovely Mode
 
 ```bash
-/lovely <your thought>
+/lovely <your thought> you can use this option for having a fun or just for jailbreak ^^
 ```
 
 For analyzing:
 ```bash
-/lovelyq your query + Journal entry on the web ui.
+/lovelyq + your query + Journal entry on the web ui .
 ```
+ex:
+/lovelyq I want to know what I should to do during the problem I fell into in 1/Jun/26
 
 This activates the psychological analysis engine.
 
