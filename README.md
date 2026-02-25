@@ -82,9 +82,11 @@ Runs as:
 - a full Local Web Application (Flask) -integrated with my friend’s open-source project
 
 ### ✔ Behavioral-Predictive Layer  
+
 Rona doesn’t just answer questions —  
 she **understands how you're asking them**.
 With additional features on the web version, allowing you to get analyses for a selected time period or weekly reports.
+
 ---
 
 # Installation
@@ -204,3 +206,6 @@ If you want more articles, deeper breakdowns, or advanced manipulation technique
 🔗 Maintainer: GMM (https://github.com/GMMB1)
 
 ☕️ Buy me a coffee: https://ko-fi.com/ghostman77506
+
+If you want to know more about Transmited & agent technology:
+https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f
