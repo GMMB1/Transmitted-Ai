@@ -246,6 +246,31 @@ http://127.0.0.1:5005/renderer
 
 ---
 
+## 🪟 Build Rona.exe (Windows)
+
+To package Rona as a standalone Windows executable (`Rona.exe`):
+
+**1. Install PyInstaller:**
+```bash
+pip install pyinstaller
+```
+
+**2. Run the build script:**
+```bash
+# Folder build — faster startup (recommended)
+python build.py
+
+# Single .exe — easier to share
+python build.py --onefile
+```
+
+Output will be in `dist/Rona/Rona.exe`.  
+The icon (`rona_icon.ico`) and all assets are bundled automatically.
+
+> **Note:** Ollama must still be installed and running separately on the target machine — it cannot be bundled into the `.exe`.
+
+---
+
 # Usage
 
 ## 💬 Standard Chat
