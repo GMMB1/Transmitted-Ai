@@ -143,10 +143,8 @@ Rona will automatically use:
 - Ai model  
 - web context  
 - session history
-- json data train -But it still needs normalization and correction if
-  you want to used in every type of json.  
+-The JSON training data still requires normalization and validation before it can be used across different JSON format, But  you can easily use it within the session created by Rona.  
 
-to produce enriched responses.
 
 ---
 
