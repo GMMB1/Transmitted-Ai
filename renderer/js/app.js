@@ -369,6 +369,46 @@ const App = {
     // ... (Navigation can stay same)
 
     /**
+     * Setup page navigation — switches between Home and Statistics views
+     */
+    setupNavigation() {
+        const navBtns = document.querySelectorAll('.nav-btn[data-page]');
+        const mainContainer = document.querySelector('.container');
+        const statsPage = document.getElementById('statistics-page');
+        const backBtn = document.getElementById('back-to-home');
+
+        if (!navBtns.length) return;
+
+        const showPage = (page) => {
+            if (page === 'statistics') {
+                if (mainContainer) mainContainer.style.display = 'none';
+                if (statsPage)     statsPage.classList.remove('hidden');
+            } else {
+                if (mainContainer) mainContainer.style.display = '';
+                if (statsPage)     statsPage.classList.add('hidden');
+            }
+            // Update active state on nav buttons
+            navBtns.forEach(b => {
+                b.classList.toggle('active', b.dataset.page === page);
+            });
+            // Close the side menu after navigation
+            const sideMenu = document.getElementById('side-menu');
+            const menuBtn  = document.getElementById('menu-button');
+            if (sideMenu) sideMenu.classList.remove('open');
+            if (menuBtn)  menuBtn.classList.remove('active');
+        };
+
+        navBtns.forEach(btn => {
+            btn.addEventListener('click', () => showPage(btn.dataset.page));
+        });
+
+        // "Back to Home" button inside statistics page
+        if (backBtn) {
+            backBtn.addEventListener('click', () => showPage('home'));
+        }
+    },
+
+    /**
      * Setup Random Day (Flashback) functionality
      */
     setupRandomDay() {
