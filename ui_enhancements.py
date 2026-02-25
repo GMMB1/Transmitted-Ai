@@ -62,6 +62,7 @@ def apply_chat_styling(app: Any) -> None:
         if getattr(app, "ui_font", None):
             app.chat_history.tag_config("system", font=app.ui_font)
             app.chat_history.tag_config("terminal", font=app.ui_font)
+            app.chat_history.tag_config("comment", font=app.ui_font)
 
         # Right-align RTL lines
         app.chat_history.tag_config("rtl", justify="right")
