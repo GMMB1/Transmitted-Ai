@@ -49,7 +49,7 @@ Fix:
 
   rmdir /s /q .venv
   py -m venv .venv
-  Windows (CMD):        .venv\Scripts\activate
+  Windows (CMD):        .venv\Scripts\activate.bat
   Windows (PowerShell): .venv\Scripts\Activate.ps1
   Linux / macOS:        source .venv/bin/activate
 
