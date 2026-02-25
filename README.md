@@ -100,8 +100,8 @@ With additional features on the web version; Allowing you to get analyses for a 
 
 - Python **3.10+**
 - **Ollama** installed and running
-- A local model:
-- linux & "But you can use the same implementation—just make sure to edit the config.py file so it fits ability of your device.
+- A local model such as llama3.1...etc
+- linux, windows and mac os.
 
 ```bash
 ollama pull llama3
@@ -122,7 +122,7 @@ pip install -r requirements.txt
 ## Run Rona
 
 ```bash
-python Rona_v7.py
+python Rona_v9_4.py
 ```
 
 Rona will open in desktop mode.  
