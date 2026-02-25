@@ -152,7 +152,7 @@ to produce enriched responses.
 
 For analyzing:
 ```bash
-/lovelyq your query + Journal entry on the web version via click on predictive button.
+/lovelyq your query + Journal entry on the web ui.
 ```
 
 This activates the psychological analysis engine.
