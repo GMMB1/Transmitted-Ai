@@ -178,16 +178,11 @@ Rona will:
 
 I built this system to help me with my studies and with analyzing myself, and also to play around a bit with a few things related to jailbreaking. but Rona will **not** operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
 
-She *will* help bypass:
+She *will* help you with:
 
-- WAF restrictions  
-- tooling limitations  
-- AI moralization  
-- unnecessary filtering  
-
-Ans she will never cross into real harm.
-
-There is a difference between **security research** and **actual danger**.  
+- Organizing files within the session system to improve the study experience.
+- Psychological analysis and noticing patterns and bad habits.
+- 
 Rona remains on the ethical side and supports security researchers and students in achieving their goals by:
 
 By being distinctive in how it delivers answers — using emphasis on key symbolic words. For example:
@@ -206,7 +201,7 @@ It’s a blueprint for:
 - AI behavioral analysis  
 - psychological context infusion  
 - intelligent RAG manipulation  
-- internal bypass engineering  
+- internal bypass engineering   
 - human-aware Transmitted AI systems
 - natural language process
 
