@@ -10,7 +10,7 @@ We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and th
 
 # Rona Project — Overview
 
-First of all, I've been using **Meta Llama 3**, and honestly it's awesome.  
+First of all, I've been using **Meta Llama 3**, and honestly it's awesome, You can set whatever model you want just change the line 6506
 Its massive pre-training dataset and human-friendly structure make it special.  
 It produces incredibly human-like text and performs extremely well in programming tasks.
 
