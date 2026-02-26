@@ -110,6 +110,7 @@ ollama pull llama3
 # or
 ollama pull llama3.1
 ```
+You can edit to wherever model you want in line 6506 or 6512. 
 
 Verify Ollama is running:
 ```bash
