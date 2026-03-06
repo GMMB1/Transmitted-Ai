@@ -54,6 +54,19 @@ except Exception:
 
 warnings.filterwarnings("ignore", category=UserWarning, module="langchain_core")
 
+# ─────────────────────────────────────────────────────────────────
+# 🔊 SOUND TOGGLE
+#   Controls whether the dragon animation sound plays.
+#
+#   RONA_SOUND_ENABLED = 0  →  Sound is ON  (plays on startup & dragon button)
+#   RONA_SOUND_ENABLED = 1  →  Sound is OFF (default — completely silent)
+#
+#   To enable sound: change the value below from 1 to 0
+# ─────────────────────────────────────────────────────────────────
+RONA_SOUND_ENABLED = 1   # 0 = play | 1 = mute  ← edit this line
+# ─────────────────────────────────────────────────────────────────
+
+
 
 def _unwrap_duckduckgo(url: str) -> str:
     if not url:
@@ -3411,6 +3424,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         # --- runtime state ---
         self.conversation_history: List[str] = []
         self.session_comments: List[Dict[str, str]] = []
+        self.session_notes: List[Dict[str, str]] = []
         self.session_bookmarks: List[Dict[str, str]] = []
         self.llm = getattr(self, "llm", None)
         self._last_user_query: str = ""
@@ -3470,9 +3484,30 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 self.chat_history.tag_config("system", foreground="#FFCC66")
                 self.chat_history.tag_config("terminal", foreground="#F3F99D")
                 self.chat_history.tag_config("comment", foreground="#FFFF00")
+                # note tag — foreground set separately so a font/margin failure
+                # never silently swallows the color
+                self.chat_history.tag_config("note", foreground="#FF8C00")
             except Exception:
                 pass
-            # give tags their fonts
+            # note — font & margins in their own block so color always survives
+            try:
+                self.chat_history.tag_config(
+                    "note",
+                    font=("Helvetica", 11, "italic"),
+                    lmargin1=8,
+                    lmargin2=8,
+                )
+            except Exception:
+                pass
+            # belt-and-braces: configure directly on the underlying tk.Text widget
+            try:
+                self.chat_history._textbox.tag_configure(
+                    "note",
+                    foreground="#FF8C00",
+                    font=("Helvetica", 11, "italic"),
+                )
+            except Exception:
+                pass
             try:
                 if getattr(self, "_font_assistant", None):
                     self.chat_history.tag_config("assistant", font=self._font_assistant)
@@ -4629,20 +4664,31 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
         win = ctk.CTkToplevel(self)
         try:
-            win.title("Session Comments")
+            win.title("Comments & Notes")
         except Exception:
             pass
-        win.geometry("400x500")
-        
+        win.geometry("400x520")
+
         self._comments_dialog_win = win
 
-        # Add "Add Comment" button
-        add_btn = ctk.CTkButton(win, text="Add New Comment", command=self._prompt_add_comment)
-        add_btn.pack(pady=10, padx=10, fill="x")
+        # ── Add New Inline Note (first, most prominent) ───────────────────────
+        ctk.CTkButton(
+            win,
+            text="✦  Add New Inline Note",
+            command=self._show_note_dialog,
+            fg_color="#1e3a5f",
+            hover_color="#2a5080",
+        ).pack(pady=(10, 4), padx=10, fill="x")
 
-        # Add "Clear All" button
-        clear_btn = ctk.CTkButton(win, text="Clear All Comments", command=self._clear_all_comments, fg_color="#AA0000", hover_color="#880000")
-        clear_btn.pack(pady=0, padx=10, fill="x")
+        # ── Add New Comment ───────────────────────────────────────────────────
+        ctk.CTkButton(win, text="🔖  Add New Comment", command=self._prompt_add_comment).pack(pady=(0, 0), padx=10, fill="x")
+
+        # ── Clear All ─────────────────────────────────────────────────────────
+        ctk.CTkButton(
+            win, text="Clear All Comments",
+            command=self._clear_all_comments,
+            fg_color="#AA0000", hover_color="#880000",
+        ).pack(pady=(4, 0), padx=10, fill="x")
 
         # Scrollable list — do NOT use label_text here; CTk's internal label
         # for that param has a _font init bug in this version that crashes on destroy.
@@ -4901,6 +4947,169 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         self._insert_separator_line()
 
     # =====================================================================
+    # INLINE NOTE FEATURE
+    # =====================================================================
+
+    def _add_note_button(self):
+        """Add a note button (📝) to the top-right of the chat frame."""
+        if getattr(self, "_note_btn", None):
+            return
+        if not getattr(self, "chat_frame", None):
+            return
+        try:
+            btn = ctk.CTkButton(
+                self.chat_frame,
+                text="📝",
+                width=40,
+                height=26,
+                fg_color="#2f2f2f",
+                hover_color="#3b3b3b",
+                command=self._show_note_dialog,
+            )
+            # Position to the left of the comment button (comment is at x=-90 → note at x=-135)
+            btn.place(relx=1.0, y=70, x=-135, anchor="ne")
+            self._note_btn = btn
+        except Exception:
+            self._note_btn = None
+
+    def _show_note_dialog(self):
+        """Show a small popup where the user types an inline note."""
+        win = getattr(self, "_note_dialog_win", None)
+        try:
+            if win is not None and win.winfo_exists():
+                win.lift()
+                win.focus_set()
+                return
+        except Exception:
+            pass
+
+        win = ctk.CTkToplevel(self)
+        try:
+            win.title("Add Inline Note")
+        except Exception:
+            pass
+        try:
+            win.geometry("400x200")
+        except Exception:
+            pass
+        try:
+            win.transient(self)
+        except Exception:
+            pass
+
+        self._note_dialog_win = win
+
+        frame = ctk.CTkFrame(win, corner_radius=10)
+        frame.pack(fill="both", expand=True, padx=14, pady=14)
+
+        ctk.CTkLabel(
+            frame,
+            text="Write your note (will appear in chat in gray):",
+            font=("Helvetica", 12),
+        ).pack(anchor="w", pady=(0, 6))
+
+        note_entry = ctk.CTkEntry(
+            frame,
+            placeholder_text="Your note here…",
+            height=38,
+        )
+        note_entry.pack(fill="x", pady=(0, 12))
+
+        status_lbl = ctk.CTkLabel(frame, text="")
+        status_lbl.pack(anchor="w", pady=(0, 6))
+
+        def _commit():
+            text = (note_entry.get() or "").strip()
+            if not text:
+                status_lbl.configure(text="Note cannot be empty.")
+                return
+            self._save_note(text)
+            try:
+                win.destroy()
+            except Exception:
+                pass
+            self._note_dialog_win = None
+
+        def _cancel():
+            try:
+                win.destroy()
+            except Exception:
+                pass
+            self._note_dialog_win = None
+
+        note_entry.bind("<Return>", lambda _e: _commit())
+
+        btn_row = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_row.pack(fill="x")
+        ctk.CTkButton(btn_row, text="Add Note", command=_commit, width=100).pack(
+            side="left"
+        )
+        ctk.CTkButton(btn_row, text="Cancel", command=_cancel, width=80).pack(
+            side="right"
+        )
+
+        try:
+            win.protocol("WM_DELETE_WINDOW", _cancel)
+        except Exception:
+            pass
+        try:
+            win.bind("<Escape>", lambda _e: _cancel())
+        except Exception:
+            pass
+        try:
+            note_entry.focus_set()
+        except Exception:
+            pass
+
+    def _save_note(self, text: str):
+        """Save a note into session_notes and insert it into the chat."""
+        import datetime as _dt
+        if not hasattr(self, "session_notes"):
+            self.session_notes = []
+
+        entry = {
+            "role": "note",
+            "text": text,
+            "timestamp": _dt.datetime.now().isoformat(),
+        }
+        self.session_notes.append(entry)
+        self._insert_note_line(text)
+
+    def _insert_note_line(self, text: str):
+        """Insert a gray italic note line directly into the chat history."""
+        if not hasattr(self, "chat_history") or not self.chat_history:
+            return
+
+        try:
+            from rtl_text import shape_for_tk, has_arabic
+            shaped = shape_for_tk(text)
+        except Exception:
+            shaped = text
+
+        line = f"✦ Note: {shaped}"
+        tags = ("note", "rtl") if (lambda s: any(
+            "\u0600" <= c <= "\u06FF" for c in s))(text) else ("note",)
+
+        # Re-assert the note tag color directly on the underlying tk.Text widget
+        # right before inserting. This guarantees no prior style override wins.
+        try:
+            self.chat_history._textbox.tag_configure(
+                "note", foreground="#FF8C00", font=("Helvetica", 11, "italic")
+            )
+            self.chat_history._textbox.tag_raise("note")
+        except Exception:
+            pass
+
+        try:
+            self.chat_history._textbox.insert("end", line + "\n", tags)
+        except Exception:
+            self.chat_history.insert("end", line + "\n", tags)
+
+        self.chat_history.see("end")
+        self._insert_separator_line()
+
+
+    # =====================================================================
     # DRAGON ANIMATION FEATURE
     # =====================================================================
 
@@ -4952,6 +5161,13 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
           3. playsound     (cross-platform wrapper, requires: pip install playsound)
           4. subprocess    (Linux: paplay/aplay, macOS: afplay)
         """
+        # ── Sound toggle ──────────────────────────────────────────────────────
+        # RONA_SOUND_ENABLED is defined at the top of this file.
+        #   0 = sound ON   |   1 = sound OFF (muted)
+        if RONA_SOUND_ENABLED == 1:
+            return   # sound is disabled — change RONA_SOUND_ENABLED to 0 to enable
+        # ─────────────────────────────────────────────────────────────────────
+
         import pathlib, threading
 
         p = pathlib.Path(path)
@@ -5267,7 +5483,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
         try:
-            win.geometry("350x200")
+            win.geometry("350x270")
         except Exception:
             pass
         try:
@@ -5412,6 +5628,34 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         )
         btn_zoom_in.pack(side="left", padx=2)
         # -----------------------------------
+
+        # --- Animation Switch Section ---
+        anim_row = ctk.CTkFrame(container, fg_color="transparent")
+        anim_row.pack(fill="x", pady=(10, 0))
+
+        _active_gif = getattr(self, "_active_gif_name", "anime.gif")
+        _anim_btn = ctk.CTkButton(
+            anim_row,
+            text=f"Switch Animation 🎞️  (now: {_active_gif})",
+            width=235,
+            fg_color="#2f2f2f",
+            hover_color="#3b3b3b",
+        )
+
+        def _toggle_animation():
+            current = getattr(self, "_active_gif_name", "anime.gif")
+            next_gif = "giphy.gif" if current == "anime.gif" else "anime.gif"
+            self._active_gif_name = next_gif
+            new_path = self._asset_path("assets", next_gif)
+            self._init_loading_animation(path=new_path)
+            try:
+                _anim_btn.configure(text=f"Switch Animation 🎞️  (now: {next_gif})")
+            except Exception:
+                pass
+
+        _anim_btn.configure(command=_toggle_animation)
+        _anim_btn.pack(side="left", padx=2)
+        # --------------------------------
 
         def _close():
             try:
@@ -5731,8 +5975,13 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
 
-    def _init_loading_animation(self):
-        self._animation_path = self._asset_path("assets", "anime.gif")
+    def _init_loading_animation(self, path=None):
+        if path is None:
+            path = self._asset_path(
+                "assets",
+                getattr(self, "_active_gif_name", "anime.gif")
+            )
+        self._animation_path = path
         self._loading_frames = []
         self._loading_job = None
         self._loading_running = False
@@ -5749,17 +5998,34 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         # Prefer PIL for smooth scaling; fall back to Tk PhotoImage zoom/subsample.
         if _PIL_AVAILABLE:
             try:
+                resample = getattr(Image, "LANCZOS", getattr(Image, "BICUBIC", 1))
+
+                # Read the reference width from anime.gif so every GIF is shown
+                # at the same visual size regardless of its original dimensions.
+                _ref_width = None
+                try:
+                    _ref_path = self._asset_path("assets", "anime.gif")
+                    if _ref_path.exists():
+                        _ref_img = Image.open(_ref_path)
+                        _ref_width = _ref_img.size[0] * max(1, scale)
+                        _ref_img.close()
+                except Exception:
+                    _ref_width = None
+
                 src = Image.open(self._animation_path)
                 for frame in ImageSequence.Iterator(src):
                     fr = frame.convert("RGBA")
+                    # Apply zoom scale first
                     if scale != 1:
-                        resample = getattr(
-                            Image, "LANCZOS", getattr(Image, "BICUBIC", 1)
-                        )
                         fr = fr.resize(
                             (max(1, fr.width * scale), max(1, fr.height * scale)),
                             resample=resample,
                         )
+                    # Normalise to anime.gif reference width (keeps aspect ratio)
+                    if _ref_width and fr.width != _ref_width:
+                        ratio = _ref_width / fr.width
+                        new_h = max(1, int(fr.height * ratio))
+                        fr = fr.resize((_ref_width, new_h), resample=resample)
                     self._loading_frames.append(ImageTk.PhotoImage(fr))
                 src.close()
                 return
@@ -6091,6 +6357,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                         "highlights": highlights,
                         "session_comments": getattr(self, "session_comments", []),
                         "session_bookmarks": getattr(self, "session_bookmarks", []),
+                        "session_notes": getattr(self, "session_notes", []),
                     }
                     path.write_text(
                         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -6200,6 +6467,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     restored_highlights = data.get("highlights") or []
                     restored_comments  = data.get("session_comments")  or []
                     restored_bookmarks = data.get("session_bookmarks") or []
+                    restored_notes     = data.get("session_notes")     or []
                     if not transcript and restored_convo:
                         # fallback: stringify turns for display
                         try:
@@ -6258,6 +6526,15 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             self.conversation_history = restored_convo    if restored_convo    else []
             self.session_comments     = restored_comments  if restored_comments  else []
             self.session_bookmarks    = restored_bookmarks if restored_bookmarks else []
+            # restore notes - also re-render them into the chat
+            restored_notes_local = locals().get("restored_notes", []) or []
+            self.session_notes = restored_notes_local
+            if restored_notes_local and getattr(self, "chat_history", None):
+                for n in restored_notes_local:
+                    try:
+                        self._insert_note_line(n.get("text") or "")
+                    except Exception:
+                        pass
         except Exception:
             self.conversation_history = []
 

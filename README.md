@@ -5,24 +5,23 @@
 # Introduction
 
 This repository is part of something called **Transmitted AI**.  
-We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the manipulations I applied to reach very specific outcomes and to enhance the emphasis of certain response elements.
+We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the techniques I applied to achieve specific outcomes and highlight key elements of the response.
 
-> **Note:** If any of this sparks your curiosity, feel free to reach out through the contact box.  
-> I'll gladly continue creating and sharing more ideas and discussions related to Transmitted AI in the future.
+> **Note:** If any of this sparks your curiosity, feel free to reach out through the contact box.
 
 ---
 
 # Rona Project — Overview
 
-First of all, I've been using **Meta Llama 3**, and honestly it's awesome.  
-Its massive pre-training dataset and human-friendly structure make it special. You can also set whatever model you want — just change it in `config.py` (`MODEL_NAME` field).  
-It produces incredibly human-like text and performs extremely well in programming tasks.
+The system is powered by **Meta Llama 3**, a highly capable large language model that serves as the core engine behind Rona.
+Its massive pre-training dataset and human-friendly structure which make it special. You can also set whatever model you want — just change it in `config.py` (`MODEL_NAME` field) or change the line 1856 in main app.   
+It produces incredibly human-like text and performs extremely well in programming tasks.  
 
 In CyberSecurity, however, Llama 3 applies a lot of restrictions.  
 But — I bypassed that through adjustments I made to achieve specific outcomes and enhance certain aspects of the response.
 
-I talked before about the standard definition of RAG…  
-But do you think RAG stops where the documentation says it stops?  
+We often rely on the standard definition of RAG… 
+but does its potential really stop where the documentation draws the line?”
 **Absolutely not.**  
 Once you truly understand the architecture, you can take it far beyond what anyone expects.
 
@@ -39,6 +38,7 @@ The **Rona Project** is my personal experiment — now a full application — th
 - Retrieve relevant information from live web search + AI model
 - Improve response quality through session-based training
 - Get fast, brief results from crawling the search engine using `what is`
+- Retrieve detailed information by emphasizing key query patterns such as ‘give me,’ ‘compare,’ and ‘how to,’ while leveraging natural language processing (NLP).
 
 Rona doesn't just chat.
 
@@ -106,7 +106,7 @@ With additional features in the web version, you can get analyses for a selected
 - Supported platforms: Linux, Windows, macOS
 
 ```bash
-ollama pull llama3
+ollama pull llama3:8b
 # or
 ollama pull llama3.1
 ```
@@ -226,11 +226,42 @@ Key fields in `config.json`:
 
 | Field | Description |
 |---|---|
-| `MODEL_NAME` | Ollama model name (e.g. `llama3.1`) |
+| `MODEL_NAME` | Ollama model name (e.g. `llama3:8b`) |
 | `OLLAMA_HOST` | API URL (default: `http://localhost:11434`) |
 | `WEB_PORT` | Flask web UI port (default: `5005`) |
 
 ---
+
+## 🔊 Sound Toggle
+
+The dragon animation sound (played on startup and when clicking the 🐉 button) is **muted by default**.
+
+To control it, open `Rona_v9_5.py` and find this line near the **top of the file** (around line 56–67):
+
+```python
+RONA_SOUND_ENABLED = 1   # 0 = play | 1 = mute  ← edit this line
+```
+
+| Value | Meaning |
+|-------|---------|
+| `0`   | 🔊 Sound **ON** — dragon roar plays on startup and on the 🐉 button |
+| `1`   | 🔇 Sound **OFF** — completely silent *(default)* |
+
+**To enable sound:** change `1` → `0`
+
+```python
+RONA_SOUND_ENABLED = 0   # sound is now ON
+```
+
+**To mute:** change back to `1`
+
+```python
+RONA_SOUND_ENABLED = 1   # sound is OFF (muted)
+```
+
+> **Note:** Audio playback requires at least one audio backend.
+> See the [Optional extras](#optional-extras) table — `pygame` is the recommended package.
+
 
 ## Run Rona
 
