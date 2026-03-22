@@ -15,8 +15,7 @@ env/
 data/
 chroma_db/
 *.sqlite3
-config.json
-analysis/
+# config.json is safe to upload — no real API keys, only local model/GPU settings
 
 # Media / Demo folders — large files, private
 vedio/
