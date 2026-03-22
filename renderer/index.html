@@ -131,7 +131,8 @@
         <div class="action-bar" style="margin-bottom: 20px;">
             <div class="action-bar-group">
                 <button id="weekly-report-btn" class="mini-btn">📅 Weekly</button>
-                <button id="monthly-report-btn" class="mini-btn">📆 Monthly</button>
+                <button id="analyze-bar-btn" class="mini-btn" style="background: linear-gradient(135deg, #a855f7, #6366f1);">🧠 Analyze</button>
+                <button id="monthly-report-btn" class="mini-btn">📆 Note</button>
             </div>
             <div class="action-bar-group">
                 <button id="show-weekly-list-btn" class="mini-btn">📋 W-History</button>
@@ -292,6 +293,7 @@
             </div>
 
             <div class="tool-actions">
+                <button id="show-week-panel-btn" class="tool-btn">📖 Show Week</button>
                 <button id="weekly-history-btn" class="tool-btn">📂 History</button>
                 <button id="save-weekly-btn" class="tool-btn save">💾 Save</button>
             </div>
@@ -365,7 +367,7 @@
             </div>
 
             <div class="tool-actions">
-                <button id="view-mode-toggle" class="tool-btn">📅 Show Days</button>
+                <button id="show-month-panel-btn" class="tool-btn">📅 Show Month</button>
                 <button id="monthly-history-btn" class="tool-btn">📂 History</button>
                 <button id="save-monthly-btn" class="tool-btn save">💾 Save</button>
             </div>
@@ -384,9 +386,9 @@
             </div>
 
             <div class="panel read-panel">
-                <h3 class="panel-header">Days & Weeks Reference</h3>
+                <h3 class="panel-header" id="monthly-note-header">📝 Monthly Note</h3>
                 <div id="monthly-reference-list">
-                    <p class="placeholder-msg">Select a Month to load data.</p>
+                    <p class="placeholder-msg">Click “Show Note” to view the note for this month.</p>
                 </div>
             </div>
         </div>

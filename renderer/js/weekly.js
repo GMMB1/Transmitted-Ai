@@ -21,9 +21,9 @@ const Weekly = {
      * Setup event listeners
      */
     setupListeners() {
-        // Open/close weekly popup - Now with 3 options: Cancel, Weekly Report, Analyze
+        // Open/close weekly popup - Cancel or Yes to generate report
         document.getElementById('weekly-report-btn').addEventListener('click', () => {
-            // Create custom popup with 3 buttons
+            // Create custom popup with 2 buttons
             const overlay = document.createElement('div');
             overlay.className = 'custom-alert-overlay active';
             overlay.id = 'weekly-choice-overlay';
@@ -35,7 +35,6 @@ const Weekly = {
                     <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
                         <button id="cancel-weekly-choice" class="secondary-btn">Cancel</button>
                         <button id="confirm-weekly-choice" class="primary-btn">Yes</button>
-                        <button id="analyze-choice" class="primary-btn" style="background: linear-gradient(135deg, #a855f7, #6366f1);">🧠 Analyze</button>
                     </div>
                 </div>
             `;
@@ -51,15 +50,19 @@ const Weekly = {
                 document.body.removeChild(overlay);
                 this.generateReport();
             });
-            
-            // Analyze - Open Analysis Modal
-            document.getElementById('analyze-choice').addEventListener('click', () => {
-                document.body.removeChild(overlay);
-                App.showAnalysisDateSelectionModal();
-            });
         });
         
         document.getElementById('close-weekly-popup').addEventListener('click', () => this.closeEditor());
+
+        // Show/Hide Week panel toggle
+        document.getElementById('show-week-panel-btn')?.addEventListener('click', () => {
+            const readPanel = document.getElementById('read-panel');
+            const btn = document.getElementById('show-week-panel-btn');
+            if (!readPanel) return;
+            const isHidden = readPanel.style.display === 'none';
+            readPanel.style.display = isHidden ? '' : 'none';
+            btn.textContent = isHidden ? '📕 Hide Week' : '📖 Show Week';
+        });
 
         // Week data loading
         document.getElementById('report-month').addEventListener('change', () => this.loadWeekData());
@@ -131,6 +134,12 @@ const Weekly = {
 
         document.getElementById('report-month').value = currentMonth;
         document.getElementById('report-week').value = weekNumber;
+
+        // Hide right panel on open, reset toggle button
+        const readPanel = document.getElementById('read-panel');
+        if (readPanel) readPanel.style.display = 'none';
+        const btn = document.getElementById('show-week-panel-btn');
+        if (btn) btn.textContent = '📖 Show Week';
 
         this.popup.classList.add('open');
         this.loadWeekData();

@@ -5,7 +5,7 @@
 const Monthly = {
     popup: null,
     listPopup: null,
-    viewMode: 'weeks', // 'days' or 'weeks'
+    viewMode: 'weeks', // kept for internal use if needed
 
     /**
      * Initialize monthly module
@@ -39,8 +39,16 @@ const Monthly = {
         document.getElementById('close-monthly-list')?.addEventListener('click', () => this.hideList());
         document.getElementById('export-monthly-btn')?.addEventListener('click', () => this.exportCSV());
 
-        // View mode toggle
-        document.getElementById('view-mode-toggle')?.addEventListener('click', () => this.toggleViewMode());
+        // Show/Hide Month panel toggle
+        document.getElementById('show-month-panel-btn')?.addEventListener('click', () => {
+            const readPanel = this.popup?.querySelector('.read-panel');
+            const btn = document.getElementById('show-month-panel-btn');
+            if (!readPanel) return;
+            const isHidden = readPanel.style.display === 'none';
+            readPanel.style.display = isHidden ? '' : 'none';
+            btn.textContent = isHidden ? '📕 Hide Month' : '📅 Show Month';
+            if (isHidden) this.showNote(); // load note content when revealing
+        });
 
         // Monthly rating slider
         document.getElementById('monthly-rating-slider')?.addEventListener('input', (e) => {
@@ -101,13 +109,42 @@ const Monthly = {
     },
 
     /**
-     * Toggle between days and weeks view
+     * Show the saved monthly note in the right sidebar
      */
-    toggleViewMode() {
-        this.viewMode = this.viewMode === 'weeks' ? 'days' : 'weeks';
-        const btn = document.getElementById('view-mode-toggle');
-        btn.textContent = this.viewMode === 'weeks' ? '📅 Show Days' : '📆 Show Weeks';
-        this.loadMonthData();
+    showNote() {
+        const year = parseInt(document.getElementById('monthly-report-year')?.value || new Date().getFullYear());
+        const month = parseInt(document.getElementById('monthly-report-month').value);
+        const container = document.getElementById('monthly-reference-list');
+        const header = document.getElementById('monthly-note-header');
+        if (!container) return;
+
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        if (!month) {
+            container.innerHTML = '<p class="placeholder-msg">Please select a month first.</p>';
+            return;
+        }
+
+        if (header) header.textContent = `📝 Note — ${monthNames[month]} ${year}`;
+
+        const savedReport = this.getMonthlyReport(year, month);
+        if (!savedReport || (!savedReport.title && !savedReport.details)) {
+            container.innerHTML = '<p class="placeholder-msg">No note saved for this month yet.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div style="padding: 15px;">
+                <div style="display: inline-block; padding: 4px 10px; border-radius: 20px;
+                     background: var(--primary-color); color: #fff; font-size: 0.8rem;
+                     margin-bottom: 12px; font-weight: bold;">
+                    📅 ${monthNames[month]} ${year}
+                </div>
+                ${savedReport.title ? `<h4 style="margin-bottom: 10px; color: var(--secondary-color);">${savedReport.title}</h4>` : ''}
+                <div style="white-space: pre-wrap; line-height: 1.7; opacity: 0.9; font-size: 0.95rem;">${savedReport.details || ''}</div>
+            </div>
+        `;
     },
 
     /**
@@ -118,6 +155,13 @@ const Monthly = {
         const currentMonth = now.getMonth() + 1;
 
         document.getElementById('monthly-report-month').value = currentMonth;
+
+        // Hide right panel on open, reset toggle button
+        const readPanel = this.popup?.querySelector('.read-panel');
+        if (readPanel) readPanel.style.display = 'none';
+        const btn = document.getElementById('show-month-panel-btn');
+        if (btn) btn.textContent = '📅 Show Month';
+
         this.popup.classList.add('open');
         this.loadMonthData();
     },
@@ -139,11 +183,7 @@ const Monthly = {
         const container = document.getElementById('monthly-reference-list');
         container.innerHTML = '';
 
-        if (this.viewMode === 'days') {
-            this.loadDaysView(container, year, month);
-        } else {
-            this.loadWeeksView(container, year, month);
-        }
+        // Right panel now shows note on button click, not auto-loaded
 
         // Load existing report data
         const savedReport = this.getMonthlyReport(year, month);

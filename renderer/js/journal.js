@@ -308,6 +308,7 @@ const Journal = {
 
         const preview = journal.details.split('\n')[0].substring(0, 60) + '...';
         const isFav = this.isFavorite(journal.date);
+        const emoji = journal.emoji || this.getEmoji(parseFloat(journal.dailyRating));
 
         card.innerHTML = `
             <button class="favorite-btn ${isFav ? 'active' : ''}" title="Toggle Favorite">
@@ -315,7 +316,7 @@ const Journal = {
             </button>
             <h3>${journal.title}</h3>
             <div class="date">${journal.date}</div>
-            <div class="emoji-display">${journal.emoji}</div>
+            <div class="emoji-display">${emoji}</div>
             <div class="rating">${journal.dailyRating}/10</div>
             <div class="preview">${preview}</div>
             <div class="card-actions">
@@ -364,6 +365,7 @@ const Journal = {
      * Open View Modal Helper
      */
     openViewModal(journal) {
+        const emoji = journal.emoji || this.getEmoji(parseFloat(journal.dailyRating));
         const overlay = document.createElement('div');
         overlay.className = 'modal';
         overlay.innerHTML = `
@@ -371,7 +373,7 @@ const Journal = {
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <span style="font-size: 1.5rem;">${journal.date}</span>
                     <h2 style="color: var(--secondary-color); font-size: 2rem; flex: 1; margin: 0 20px;">${journal.title}</h2>
-                    <span style="font-size: 2rem;">${journal.emoji} ${journal.dailyRating}/10</span>
+                    <span style="font-size: 2rem;">${emoji} ${journal.dailyRating}/10</span>
                 </div>
                 <div style="white-space: pre-wrap; text-align: center; direction: rtl; font-size: 1.2rem; line-height: 1.8;">
                     ${journal.details}
@@ -397,13 +399,14 @@ const Journal = {
 
         const overlay = document.createElement('div');
         overlay.className = 'modal';
+        const editEmoji = journal.emoji || this.getEmoji(parseFloat(journal.dailyRating));
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 700px; text-align: left;">
                 <h2 style="text-align: center; margin-bottom: 20px;">Edit Journal</h2>
                 <input type="text" id="edit-title" value="${journal.title}" placeholder="Title" style="margin-bottom: 10px;">
                 <input type="date" id="edit-date" value="${journal.date}" style="margin-bottom: 10px;">
                 <div style="display: flex; align-items: center; gap: 15px; margin: 15px 0;">
-                    <span id="edit-emoji" style="font-size: 3rem;">${journal.emoji}</span>
+                    <span id="edit-emoji" style="font-size: 3rem;">${editEmoji}</span>
                     <input type="range" id="edit-rating" min="0" max="10" step="0.25" value="${journal.dailyRating}" style="flex: 1;">
                     <span id="edit-rating-display" style="font-size: 1.5rem; min-width: 80px;">${journal.dailyRating}/10</span>
                 </div>

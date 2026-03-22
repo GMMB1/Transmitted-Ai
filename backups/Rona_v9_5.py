@@ -879,7 +879,6 @@ def _help_text() -> str:
         "- `/lovely <text|list|find x>` — lovely/psycho flow (if enabled)\n"
         "- `/hunt <target>` — bug bounty flow (if enabled)\n"
         "- `/clear` — clear chat\n"
-        "- `/dev [cmd]` — source inspector & analyzer\n"
     )
 
 
@@ -1638,244 +1637,6 @@ class ResponseFormatter:
 formatter = ResponseFormatter()
 
 
-# =============================================================================
-# DEV INSPECTOR  — /dev command for in-app source introspection
-# Zero file-reads for list operations (AST index); chunked reads for slice ops.
-# =============================================================================
-import ast as _ast
-import pathlib as _pl
-
-_DEV_SOURCE_FILE  = _pl.Path(__file__).resolve()
-_MAX_CHUNK_LINES  = 120    # max lines per /dev read
-_ANALYZE_CHUNK    = 300    # lines per LLM chunk for /dev full-analyze
-
-
-class _DevInspector:
-    """
-    Lazy AST index over the Rona source file.
-    Index is built ONCE on first access; subsequent list queries hit only the cache.
-    """
-    def __init__(self, path: _pl.Path = _DEV_SOURCE_FILE):
-        self._path = path
-        self._index: dict | None = None
-
-    # ------------------------------------------------------------------ index
-    def _ensure_index(self) -> dict:
-        if self._index is not None:
-            return self._index
-        src = self._path.read_text(encoding="utf-8", errors="replace")
-        idx: dict = {"classes": {}, "functions": {}, "globals": []}
-        try:
-            tree = _ast.parse(src, filename=str(self._path))
-            for node in _ast.walk(tree):
-                if isinstance(node, _ast.ClassDef):
-                    idx["classes"][node.name] = node.lineno
-                elif isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-                    idx["functions"][node.name] = node.lineno
-            for node in tree.body:
-                if isinstance(node, _ast.Assign):
-                    for t in node.targets:
-                        if isinstance(t, _ast.Name):
-                            idx["globals"].append((t.id, node.lineno))
-        except SyntaxError:
-            pass
-        self._index = idx
-        return idx
-
-    def invalidate(self):
-        self._index = None
-
-    # -------------------------------------------------------------- list ops
-    def list_classes(self) -> str:
-        cls = self._ensure_index()["classes"]
-        if not cls:
-            return "No classes found."
-        lines = [f"**Classes in {self._path.name}** ({len(cls)} total)\n"]
-        for name, ln in sorted(cls.items(), key=lambda x: x[1]):
-            lines.append(f"  L{ln:>5}  {name}")
-        return "\n".join(lines)
-
-    def list_functions(self, filter_kw: str = "") -> str:
-        fns = self._ensure_index()["functions"]
-        if filter_kw:
-            fns = {k: v for k, v in fns.items() if filter_kw.lower() in k.lower()}
-        if not fns:
-            return f"No functions matching '{filter_kw}'." if filter_kw else "No functions found."
-        lines = [f"**Functions** ({len(fns)} {'matching' if filter_kw else 'total'})\n"]
-        for name, ln in sorted(fns.items(), key=lambda x: x[1]):
-            lines.append(f"  L{ln:>5}  {name}")
-        return "\n".join(lines)
-
-    def stats(self) -> str:
-        idx = self._ensure_index()
-        total = sum(1 for _ in self._path.open(encoding="utf-8", errors="replace"))
-        kb = self._path.stat().st_size // 1024
-        return (
-            f"**Dev Stats — {self._path.name}**\n"
-            f"  Lines      : {total:,}\n"
-            f"  Size       : {kb} KB\n"
-            f"  Classes    : {len(idx['classes'])}\n"
-            f"  Functions  : {len(idx['functions'])}\n"
-            f"  Top globals: {len(idx['globals'])}\n"
-        )
-
-    def read_symbol(self, name: str) -> tuple:
-        """
-        Returns (source_chunk_str, start_line, end_line).
-        Reads only lines of the named class/function, capped at _MAX_CHUNK_LINES.
-        """
-        idx   = self._ensure_index()
-        lineno = idx["classes"].get(name) or idx["functions"].get(name)
-        if lineno is None:
-            return f"'{name}' not found. Try `/dev class` or `/dev fun`.", 0, 0
-        all_lines = self._path.read_text(encoding="utf-8", errors="replace").splitlines()
-        start = lineno - 1
-        base_indent = len(all_lines[start]) - len(all_lines[start].lstrip())
-        end = start + 1
-        while end < len(all_lines) and (end - start) < _MAX_CHUNK_LINES:
-            strip = all_lines[end].lstrip()
-            if strip:
-                ind = len(all_lines[end]) - len(strip)
-                if strip.startswith(("def ", "class ", "async def ")) and ind <= base_indent and end > start + 1:
-                    break
-            end += 1
-        chunk = "\n".join(all_lines[start:end])
-        if (end - start) >= _MAX_CHUNK_LINES:
-            chunk += f"\n# ... truncated at {_MAX_CHUNK_LINES} lines"
-        return chunk, lineno, lineno + (end - start) - 1
-
-    def iter_chunks(self, chunk_size: int = _ANALYZE_CHUNK):
-        lines = self._path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for i in range(0, len(lines), chunk_size):
-            yield i + 1, "\n".join(lines[i : i + chunk_size])
-
-
-_DEV_INSPECTOR: "_DevInspector | None" = None
-
-
-def _get_dev_inspector() -> _DevInspector:
-    global _DEV_INSPECTOR
-    if _DEV_INSPECTOR is None:
-        _DEV_INSPECTOR = _DevInspector()
-    return _DEV_INSPECTOR
-
-
-# ---- intent resolver (natural language → (intent, remainder)) ----
-_DEV_NL = {
-    "class":   ["class", "classes"],
-    "fun":     ["function", "functions", "fun", "def ", "defs", "methods", "method"],
-    "stats":   ["stats", "stat", "info", "summary", "size", "lines", "count"],
-    "read":    ["read", "show", "view", "display", "print", "source"],
-    "analyze": ["analyze", "analyse", "explain", "describe", "what does"],
-    "full":    ["full", "entire", "whole", "full-analyze", "full analyze"],
-    "help":    ["help", "?"],
-}
-
-
-def _dev_resolve(arg: str) -> tuple:
-    t = (arg or "").strip().lower()
-    first = t.split()[0] if t else ""
-    synonyms = {"classes": "class", "function": "fun", "functions": "fun",
-                "stat": "stats", "analyse": "analyze", "full-analyze": "full", "?": "help"}
-    direct = {"class", "fun", "stats", "read", "analyze", "full", "help", "reindex"}
-    if first in direct:
-        return first, t[len(first):].strip()
-    if first in synonyms:
-        return synonyms[first], t[len(first):].strip()
-    for intent, pats in _DEV_NL.items():
-        for p in pats:
-            if p in t:
-                return intent, t[t.find(p) + len(p):].strip()
-    return "read", arg.strip()
-
-
-def _dev_help_text() -> str:
-    return (
-        "**🛠  /dev  — Rona Source Inspector**\n\n"
-        "| Command | Action |\n"
-        "|---------|--------|\n"
-        "| `/dev class`          | List all classes (index only) |\n"
-        "| `/dev fun`            | List all functions (index only) |\n"
-        "| `/dev fun <kw>`       | Filter functions by keyword |\n"
-        "| `/dev stats`          | File metrics |\n"
-        "| `/dev read <name>`    | Show source of a class/function (chunk) |\n"
-        "| `/dev analyze <name>` | LLM explanation of a class/function |\n"
-        "| `/dev full-analyze`   | Analyze entire file in safe chunks |\n"
-        "| `/dev reindex`        | Rebuild AST index |\n\n"
-        "Natural language: *'list all functions', 'show me class X', 'analyze function Y'*"
-    )
-
-
-async def _cmd_dev(app, arg: str) -> str:
-    insp = _get_dev_inspector()
-    intent, rest = _dev_resolve(arg)
-
-    if intent == "help" or not arg.strip():
-        return _dev_help_text()
-    if intent == "reindex":
-        insp.invalidate()
-        return "🔄 Index cleared — will rebuild on next query."
-    if intent == "class":
-        return insp.list_classes()
-    if intent == "fun":
-        return insp.list_functions(filter_kw=rest)
-    if intent == "stats":
-        return insp.stats()
-    if intent == "read":
-        name = rest.split()[0] if rest.split() else ""
-        if not name:
-            return "Usage: `/dev read <Name>`"
-        chunk, s, e = insp.read_symbol(name)
-        hdr = f"**{name}** — lines {s}–{e}\n\n" if s else ""
-        return f"{hdr}```python\n{chunk}\n```"
-    if intent == "analyze":
-        name = rest.split()[0] if rest.split() else ""
-        if not name:
-            return "Usage: `/dev analyze <Name>`"
-        chunk, s, e = insp.read_symbol(name)
-        if not s:
-            return chunk
-        prompt = (
-            f"Analyze `{name}` (lines {s}–{e}) from Rona v9.5 source.\n"
-            "Explain: purpose, inputs/outputs, side-effects, and any issues.\n"
-            f"```python\n{chunk}\n```"
-        )
-        try:
-            return await app._call_llm_with_context(
-                prompt, [], [], intrinsic_only=True,
-                system_override="SYSTEM: Code analysis. Be precise and technical."
-            ) or "(no output)"
-        except Exception as ex:
-            return f"❌ LLM error: {ex}\n\n```python\n{chunk}\n```"
-    if intent == "full":
-        app._reply_assistant(
-            f"🔍 Full-file analysis starting — {insp._path.name}\n"
-            f"Reading in {_ANALYZE_CHUNK}-line chunks..."
-        )
-        for s, chunk_text in insp.iter_chunks(_ANALYZE_CHUNK):
-            prompt = (
-                f"Summarize this chunk of Rona v9.5 (from line {s}).\n"
-                f"List classes/functions present and what they do in one line each.\n"
-                f"```python\n{chunk_text}\n```"
-            )
-            try:
-                result = await app._call_llm_with_context(
-                    prompt, [], [], intrinsic_only=True,
-                    system_override="SYSTEM: Code analysis."
-                )
-                app._reply_assistant(f"▶ **Lines {s}–{s + _ANALYZE_CHUNK - 1}**\n{result or '(no output)'}")
-            except Exception as ex:
-                app._reply_assistant(f"❌ Chunk {s}: {ex}")
-        return "✅ Full-file analysis complete."
-    # fallback
-    name = arg.strip().split()[0] if arg.strip() else ""
-    if name:
-        chunk, s, e = insp.read_symbol(name)
-        hdr = f"**{name}** — lines {s}–{e}\n\n" if s else ""
-        return f"{hdr}```python\n{chunk}\n```"
-    return _dev_help_text()
-
-
 # ---------- BLOCK 7: COMMAND ROUTER MIXIN ----------
 import asyncio, logging, threading
 
@@ -1890,20 +1651,13 @@ class CommandRouterMixin:
     def _init_commands(self):
         """Register all slash-commands here (single source of truth)."""
         self._commands = {
-            "/help":    self._cmd_help,
-            "/clear":   self._cmd_clear,
-            "/lovely":  self._cmd_lovely,
-            "/lovelyq": self._cmd_lovelyq,
-            "/webui":   self._cmd_webui,
-            "/tr":      self._cmd_translate,
-            "/dev":     lambda arg: self._run_async(self._cmd_dev_async(arg)),
+            "/help": self._cmd_help,
+            "/clear": self._cmd_clear,
+            "/lovely": self._cmd_lovely,
+            "/lovelyq": self._cmd_lovelyq,  # async Q&A
+            "/webui": self._cmd_webui,  # start/stop flask
+            "/tr": self._cmd_translate,  # translate + explain
         }
-
-    async def _cmd_dev_async(self, arg: str) -> None:
-        """Async wrapper: runs /dev and pushes result to chat."""
-        result = await _cmd_dev(self, arg)
-        if isinstance(result, str) and result.strip():
-            self._reply_assistant(result)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -3685,8 +3439,8 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             "i don't like banana",
         ]
         # --- styling defaults ---
-        self._assistant_default_color = "#1384ad"   # teal-blue (default)
-        self._assistant_accent_color  = "#e04cc3"   # pink (toggled)
+        self._assistant_default_color = "#C6DBFF"   # bright blue (default)
+        self._assistant_accent_color  = "#CC0000"   # deep red (toggled)
         self._theme_is_red = False                  # tracks current toggle state
         # --- loading animation state ---
         self._loading_frames = []
@@ -3773,12 +3527,10 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             try:
                 self.chat_history.tag_config(
                     "separator",
-                    foreground="#1a6b7a",
-                    font=("Cascadia Code", 9),
+                    foreground="#4f4f4f",
                     lmargin1=0,
                     lmargin2=0,
-                    spacing1=8,
-                    spacing3=10,
+                    spacing3=6,
                 )
             except Exception:
                 pass
@@ -3864,11 +3616,9 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         self.send_button = ctk.CTkButton(
             self.input_frame,
             text="Send",
-            command=self.send_message,
+            command=self.send_message,  # no args
             width=90,
             height=40,
-            fg_color="#0b3770",
-            hover_color="#0f4a9e",
         )
         # Optional: quick controls for Web UI
         self.web_controls = ctk.CTkFrame(self, fg_color="transparent")
@@ -3882,17 +3632,24 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             self.chat_history.tag_config("terminal", foreground="#F3F99D")
             self.chat_history.tag_config(
                 "separator",
-                foreground="#1a6b7a",
-                font=("Cascadia Code", 9),
+                foreground="#4f4f4f",
                 lmargin1=0,
                 lmargin2=0,
-                spacing1=8,
-                spacing3=10,
+                spacing3=6,
             )
         except Exception:
             pass
 
-        # ── Toolbar buttons — Open Predictive is first (Start Web UI removed) ──
+        ctk.CTkButton(
+            self.web_controls,
+            text="Start Web UI",
+            command=lambda: (
+                self.webui.start() and self._reply_assistant("Web UI started.")
+            ),
+            width=120,
+        ).pack(side="left", padx=6)
+        add_top_controls(self)
+
         ctk.CTkButton(
             self.web_controls,
             text="Open Predictive",
@@ -3900,40 +3657,32 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 f"Opening: {self.webui.open_predictive()}"
             ),
             width=140,
-            fg_color="#0b3770",
-            hover_color="#0f4a9e",
         ).pack(side="left", padx=6)
-        add_top_controls(self)
 
         ctk.CTkButton(
             self.web_controls,
             text="Lovely ↦ Analyze",
             command=lambda: self._run_async_with_loading(self._lovely_from_entry()),
             width=140,
-            fg_color="#0b3770",
-            hover_color="#0f4a9e",
         ).pack(side="left", padx=6)
         ctk.CTkButton(
             self.web_controls,
             text="Session ↦ Save/Import",
             command=self._open_session_flow,
             width=160,
-            fg_color="#0b3770",
-            hover_color="#0f4a9e",
         ).pack(side="left", padx=6)
 
-        # 🐉 Dragon button
+        # 🐉 Dragon button — right of Save/Import
         ctk.CTkButton(
             self.web_controls,
             text="🐉",
             command=self._on_dragon_btn_click,
             width=44,
-            fg_color="#0b3770",
+            fg_color="#1a1a2e",
             hover_color="#3a0a0a",
         ).pack(side="left", padx=4)
 
-        # ── Proposition popup button (🔣) — click to open logic symbol picker ──
-        self._build_proposition_popup(self.web_controls)
+        # << add a Clear Chat button to the same row
 
         self.send_button.pack(side="right", padx=10, pady=5)
         se = getattr(self, "search_engine", None)
@@ -3941,7 +3690,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         # --- Web UI + Lovely wiring ---
         self.webui = WebUIBridge(self)
         self.lovely = LovelyAnalyzer(self)
-
 
         # hard guard: if anything LangChain-ish slipped in, replace it
         try:
@@ -4338,7 +4086,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 text="✕",
                 width=30,
                 command=self._close_search_nav,
-                fg_color="#e04cc3",
+                fg_color="#cc0000",
                 hover_color="#aa0000",
                 text_color="white",
             )
@@ -4440,68 +4188,12 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             except Exception:
                 pass
         
-        # Visual feedback + sync extras
+        # Visual feedback
         if changed:
             try:
                 self.update_status(f"Zoom: {new_size}pt")
             except Exception:
                 pass
-            try:
-                self._refresh_zoom_extras(new_size)
-            except Exception:
-                pass
-
-    def _refresh_zoom_extras(self, base_pt: int) -> None:
-        """
-        Called by every zoom path to keep proposition icon buttons
-        and the note tag in sync with the current font size.
-        """
-        sym_pt   = max(9,  base_pt - 4)   # symbol glyphs (slightly smaller)
-        note_pt  = max(9,  base_pt - 6)   # note italic tag
-        mono_pt  = max(8,  base_pt - 6)   # monospace tokens (code blocks)
-
-        # ── proposition icon buttons ──────────────────────────────────────
-        for btn in getattr(self, "_prop_icon_btns", []):
-            try:
-                btn.configure(font=("DejaVu Sans", sym_pt))
-            except Exception:
-                pass
-
-        # ── note tag ─────────────────────────────────────────────────────
-        try:
-            raw = getattr(self.chat_history, "_textbox", self.chat_history)
-            raw.tag_configure(
-                "note",
-                foreground="#FF8C00",
-                font=("Helvetica", note_pt, "italic"),
-            )
-        except Exception:
-            pass
-
-        # ── code token / codeblock tags ───────────────────────────────────
-        try:
-            raw = getattr(self.chat_history, "_textbox", self.chat_history)
-            raw.tag_configure("codeblock",    font=("DejaVu Sans Mono", mono_pt))
-            raw.tag_configure("tok_keyword",  font=("DejaVu Sans Mono", mono_pt, "bold"))
-            raw.tag_configure("tok_string",   font=("DejaVu Sans Mono", mono_pt))
-            raw.tag_configure("tok_comment",  font=("DejaVu Sans Mono", mono_pt))
-            raw.tag_configure("tok_number",   font=("DejaVu Sans Mono", mono_pt))
-            raw.tag_configure("tok_operator", font=("DejaVu Sans Mono", mono_pt))
-            raw.tag_configure("tok_builtin",  font=("DejaVu Sans Mono", mono_pt, "bold"))
-            raw.tag_configure("inlinecode",   font=("DejaVu Sans Mono", mono_pt))
-        except Exception:
-            pass
-
-        # ── logic/math symbol tags ────────────────────────────────────────
-        try:
-            raw = getattr(self.chat_history, "_textbox", self.chat_history)
-            logic_font = ("DejaVu Sans", max(10, base_pt - 2))
-            for tag in ("logic_and", "logic_or", "logic_not", "logic_imp",
-                        "logic_bic", "logic_xor", "logic_qty",
-                        "math_sym", "math_eq"):
-                raw.tag_configure(tag, font=logic_font)
-        except Exception:
-            pass
 
     def _open_reply_to_selection_dialog(self, selected_text: str) -> None:
         """
@@ -4892,9 +4584,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if not getattr(self, "chat_history", None):
             return
         try:
-            sep = "  ······ ● ······  "
-            full_sep = "  ─" * 20 + sep + "─" * 20 + "\n\n"
-            self.chat_history.insert("end", full_sep, ("separator",))
+            self.chat_history.insert("end", "-" * 48 + "\n\n", ("separator",))
             self.chat_history.see("end")
         except Exception:
             pass
@@ -4910,8 +4600,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 text="Clear highlight",
                 width=110,
                 height=26,
-                fg_color="#0b3770",
-                hover_color="#0f4a9e",
                 command=self._clear_highlights,
             )
             btn.place(relx=1.0, y=6, anchor="ne")
@@ -4925,8 +4613,8 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if not getattr(self, "chat_frame", None):
             return
         try:
-            # Default state is Blue replies, so the button offers "Pink replies"
-            btn_text = "Blue replies" if getattr(self, "_theme_is_red", False) else "Pink replies"
+            # Default state is Blue replies, so the button offers "Red replies"
+            btn_text = "Blue replies" if getattr(self, "_theme_is_red", False) else "Red replies"
             btn = ctk.CTkButton(
                 self.chat_frame,
                 text=btn_text,
@@ -5025,42 +4713,15 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 lbl_kwargs = {}
             for idx, item in enumerate(self.session_comments):
                 txt = item.get("text", "") if isinstance(item, dict) else str(item)
-                ts  = (item.get("timestamp", "") if isinstance(item, dict) else "")[:16].replace("T", " ")
-
-                row = ctk.CTkFrame(scroll, fg_color="transparent")
-                row.pack(fill="x", pady=2, padx=2)
-
-                info = ctk.CTkFrame(row, fg_color="transparent")
-                info.pack(side="left", fill="x", expand=True)
-
-                ctk.CTkLabel(
-                    info,
-                    text=f"{idx+1}. {txt}",
-                    anchor="w",
-                    justify="left",
-                    wraplength=310,
+                lbl = ctk.CTkLabel(
+                    scroll, 
+                    text=f"{idx+1}. {txt}", 
+                    anchor="w", 
+                    justify="left", 
+                    wraplength=350,
                     **lbl_kwargs
-                ).pack(anchor="w", fill="x")
-
-                if ts:
-                    ctk.CTkLabel(
-                        info,
-                        text=ts,
-                        text_color="#666666",
-                        anchor="w",
-                        font=("Arial", 9),
-                    ).pack(anchor="w")
-
-                # 🗑 trash button — same style as bookmark delete
-                ctk.CTkButton(
-                    row,
-                    text="\U0001f5d1",
-                    width=30,
-                    height=26,
-                    fg_color="#550000",
-                    hover_color="#880000",
-                    command=lambda i=idx: self._delete_comment(i),
-                ).pack(side="right", padx=(4, 0))
+                )
+                lbl.pack(fill="x", pady=2, padx=5)
 
         # ── Bookmarks section ──────────────────────────────────────────────
         self._show_bookmarks_section(win)
@@ -5190,19 +4851,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         bks = getattr(self, "session_bookmarks", [])
         if 0 <= idx < len(bks):
             bks.pop(idx)
-        try:
-            win = getattr(self, "_comments_dialog_win", None)
-            if win and win.winfo_exists():
-                win.destroy()
-                self._show_comments_list()
-        except Exception:
-            pass
-
-    def _delete_comment(self, idx: int):
-        """Remove a comment by index and refresh the dialog."""
-        cmts = getattr(self, "session_comments", [])
-        if 0 <= idx < len(cmts):
-            cmts.pop(idx)
         try:
             win = getattr(self, "_comments_dialog_win", None)
             if win and win.winfo_exists():
@@ -5428,84 +5076,36 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         self._insert_note_line(text)
 
     def _insert_note_line(self, text: str):
-        """Insert a styled note into the chat with logic/math symbol colouring."""
+        """Insert a gray italic note line directly into the chat history."""
         if not hasattr(self, "chat_history") or not self.chat_history:
             return
 
         try:
             from rtl_text import shape_for_tk, has_arabic
             shaped = shape_for_tk(text)
-            is_rtl = has_arabic(text)
         except Exception:
             shaped = text
-            is_rtl = False
 
-        ch  = self.chat_history
-        raw = getattr(ch, "_textbox", ch)
+        line = f"✦ Note: {shaped}"
+        tags = ("note", "rtl") if (lambda s: any(
+            "\u0600" <= c <= "\u06FF" for c in s))(text) else ("note",)
 
-        # Re-assert note tag colour/font before every insert
+        # Re-assert the note tag color directly on the underlying tk.Text widget
+        # right before inserting. This guarantees no prior style override wins.
         try:
-            note_size = 11
-            try:
-                # reflect current zoom if available
-                delta = getattr(self, "_current_zoom_delta", 0)
-                note_size = max(9, 11 + delta - 6)   # same formula as _refresh_zoom_extras
-            except Exception:
-                pass
-            raw.tag_configure("note", foreground="#FF8C00",
-                              font=("Helvetica", note_size, "italic"))
-            raw.tag_raise("note")
+            self.chat_history._textbox.tag_configure(
+                "note", foreground="#FF8C00", font=("Helvetica", 11, "italic")
+            )
+            self.chat_history._textbox.tag_raise("note")
         except Exception:
             pass
 
-        base_tags = ("note", "rtl") if is_rtl else ("note",)
-
-        # ── prefix (always orange) ─────────────────────────────────────────
         try:
-            raw.insert("end", "✦ Note: ", base_tags)
+            self.chat_history._textbox.insert("end", line + "\n", tags)
         except Exception:
-            ch.insert("end", "✦ Note: ", base_tags)
+            self.chat_history.insert("end", line + "\n", tags)
 
-        # ── walk the text, colouring logic/math symbols inline ────────────
-        _SYM_PAT = re.compile(
-            r"(∧|∨|¬|→|⇒|↔|⟺|<=>|⊕|∀|∃|[∑∫∞√∂∆∇]|[≤≥≠±×÷])"
-        )
-        _SYM_TAG = {
-            "∧": "logic_and", "∨": "logic_or",  "¬": "logic_not",
-            "→": "logic_imp", "⇒": "logic_imp",  "↔": "logic_bic",
-            "⟺": "logic_bic", "<=>":"logic_bic",  "⊕": "logic_xor",
-            "∀": "logic_qty", "∃": "logic_qty",
-        }
-
-        pos = 0
-        for m in _SYM_PAT.finditer(shaped):
-            plain = shaped[pos: m.start()]
-            if plain:
-                try:
-                    raw.insert("end", plain, base_tags)
-                except Exception:
-                    ch.insert("end", plain, base_tags)
-            sym = m.group(0)
-            sym_tag = _SYM_TAG.get(sym, "math_sym")
-            try:
-                raw.insert("end", sym, (sym_tag,))
-            except Exception:
-                ch.insert("end", sym, base_tags)
-            pos = m.end()
-
-        tail = shaped[pos:]
-        if tail:
-            try:
-                raw.insert("end", tail, base_tags)
-            except Exception:
-                ch.insert("end", tail, base_tags)
-
-        try:
-            raw.insert("end", "\n")
-        except Exception:
-            ch.insert("end", "\n")
-
-        ch.see("end")
+        self.chat_history.see("end")
         self._insert_separator_line()
 
 
@@ -5522,352 +5122,35 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         import pathlib
         return pathlib.Path(__file__).resolve().parent.joinpath(*parts)
 
-    # =====================================================================
-    # PROPOSITION POPUP  (single trigger button → floating symbol picker)
-    # =====================================================================
-
-    def _build_proposition_popup(self, parent) -> None:
-        """
-        Add a single  🔣  button to *parent*.
-        Clicking it toggles a small floating window of logic/math symbol buttons.
-        Clicking any symbol appends it to user_input and closes the popup.
-        """
-        _PROP_SYMBOLS = [
-            ("∧", "AND"),  ("∨", "OR"),   ("¬", "NOT"),
-            ("→", "IMP"),  ("↔", "BICO"), ("⊕", "XOR"),
-            ("∀", "∀"),    ("∃", "∃"),    ("⊤", "T"),
-            ("⊥", "⊥"),    ("≡", "≡"),
-        ]
-
-        # store popup state
-        self._prop_popup: "tk.Toplevel | None" = None
-
-        def _append_sym(sym: str):
-            try:
-                w = getattr(self, "user_input", None)
-                if w is None:
-                    return
-                if hasattr(w, "insert"):
-                    w.insert("end", sym)
-                elif hasattr(w, "_entry"):
-                    w._entry.insert("end", sym)
-            except Exception:
-                pass
-
-        def _close_popup():
-            try:
-                if self._prop_popup and self._prop_popup.winfo_exists():
-                    self._prop_popup.destroy()
-            except Exception:
-                pass
-            self._prop_popup = None
-
-        def _toggle_popup():
-            # if already open → close
-            if self._prop_popup and getattr(self._prop_popup, "winfo_exists", lambda: False)():
-                _close_popup()
-                return
-
-            # position popup just above the trigger button
-            try:
-                self.update_idletasks()
-                bx = trigger_btn.winfo_rootx()
-                by = trigger_btn.winfo_rooty()
-                bh = trigger_btn.winfo_height()
-            except Exception:
-                bx, by, bh = 400, 400, 30
-
-            import tkinter as _tk
-            popup = _tk.Toplevel(self)
-            popup.overrideredirect(True)          # no title bar
-            popup.attributes("-topmost", True)
-            popup.configure(bg="#0b3770")
-            self._prop_popup = popup
-
-            # dismiss when focus leaves
-            popup.bind("<FocusOut>", lambda e: _close_popup())
-            popup.bind("<Escape>",   lambda e: _close_popup())
-
-            # lay out symbols in a grid (6 per row)
-            PER_ROW = 6
-            for idx, (sym, tip) in enumerate(_PROP_SYMBOLS):
-                _sym = sym
-                def _handler(e=None, s=_sym):
-                    _append_sym(s)
-                    _close_popup()
-                col = idx % PER_ROW
-                row = idx // PER_ROW
-                lbl = _tk.Label(
-                    popup, text=sym,
-                    bg="#0b3770", fg="#C6DBFF",
-                    font=("DejaVu Sans", 18),
-                    padx=8, pady=4,
-                    relief="flat", cursor="hand2",
-                )
-                lbl.grid(row=row, column=col, padx=2, pady=2)
-                lbl.bind("<Button-1>", _handler)
-                # hover highlight
-                lbl.bind("<Enter>", lambda e, l=lbl: l.configure(bg="#0f4a9e"))
-                lbl.bind("<Leave>", lambda e, l=lbl: l.configure(bg="#0b3770"))
-
-            # position after widgets are rendered
-            popup.update_idletasks()
-            pw = popup.winfo_reqwidth()
-            ph = popup.winfo_reqheight()
-            # show above the button
-            px = bx
-            py = by - ph - 4
-            popup.geometry(f"+{px}+{py}")
-            popup.focus_set()
-
-        # ── the single trigger button ──────────────────────────────────────
-        try:
-            trigger_btn = ctk.CTkButton(
-                parent,
-                text="∑",          # Σ as a hint for "logic/math symbols"
-                width=38,
-                height=28,
-                fg_color="#0b3770",
-                hover_color="#0f4a9e",
-                text_color="#C6DBFF",
-                font=("DejaVu Sans", 15),
-                command=_toggle_popup,
-            )
-            trigger_btn.pack(side="left", padx=3)
-        except Exception as e:
-            import logging
-            logging.debug(f"[prop popup] build failed: {e}")
-
-    # =====================================================================
-    # PROPOSITION ICON BAR  (logic/math shortcut symbols)
-    # =====================================================================
-
-    def _build_proposition_icons(self, parent) -> None:
-        """
-        Add a compact row of proposition/logic symbol buttons to *parent*.
-        Clicking a button appends its symbol to the user input field.
-
-        Symbols included:
-          ∧  ∨  ¬  →  ↔  ⊕  ∀  ∃  ⊤  ⊥  ≡
-        """
-        _PROP_SYMBOLS = [
-            ("∧",  "AND / Conjunction"),
-            ("∨",  "OR  / Disjunction"),
-            ("¬",  "NOT / Negation"),
-            ("→",  "Implication"),
-            ("↔",  "Biconditional"),
-            ("⊕",  "XOR / Exclusive OR"),
-            ("∀",  "For All"),
-            ("∃",  "There Exists"),
-            ("⊤",  "Tautology (True)"),
-            ("⊥",  "Contradiction (False)"),
-            ("≡",  "Logical Equivalence"),
-        ]
-
-        def _append_sym(sym: str):
-            """Append *sym* to the user_input widget."""
-            try:
-                w = getattr(self, "user_input", None)
-                if w is None:
-                    return
-                # CTkEntry
-                if hasattr(w, "insert"):
-                    try:
-                        w.insert("end", sym)
-                    except Exception:
-                        pass
-                elif hasattr(w, "_entry"):
-                    w._entry.insert("end", sym)
-            except Exception:
-                pass
-
-        try:
-            # thin separator
-            import tkinter as _tk
-            _tk.Label(
-                parent, text=" │ ", bg="#1a1a2e", fg="#44475a",
-                font=("DejaVu Sans", 9),
-            ).pack(side="left", padx=0)
-
-            # initialise / reset the button reference list
-            self._prop_icon_btns = []
-
-            for sym, tip in _PROP_SYMBOLS:
-                _sym = sym  # capture for closure
-                try:
-                    btn = ctk.CTkButton(
-                        parent,
-                        text=sym,
-                        width=32,
-                        height=28,
-                        fg_color="#0b3770",       # dark navy button background
-                        hover_color="#0f4a9e",     # brighter navy on hover
-                        text_color="#C6DBFF",      # light blue symbols on top
-                        font=("DejaVu Sans", 14),
-                        command=lambda s=_sym: _append_sym(s),
-                    )
-                    btn.pack(side="left", padx=1)
-                    self._prop_icon_btns.append(btn)   # ← store ref for zoom
-                    # simple tooltip on hover
-                    _tip_text = tip
-                    def _show_tip(e, t=_tip_text):
-                        try:
-                            self.update_status(f"Logic: {t}")
-                        except Exception:
-                            pass
-                    btn.bind("<Enter>", _show_tip)
-                    btn.bind("<Leave>", lambda e: (
-                        self.update_status("✅ Ready") if hasattr(self, "update_status") else None
-                    ))
-                except Exception:
-                    pass
-        except Exception as e:
-            import logging
-            logging.debug(f"[prop icons] build failed: {e}")
-
-
     def _on_dragon_btn_click(self):
         """
-        Triggered by the 🐉 button.
-        Shows ALL dragon GIFs simultaneously in a ring topology:
-          · N-1 dragons evenly spaced on a circle
-          · 1 dragon in the center
+        Triggered by the \U0001f409 button.
+        Phase 1 \u2014 splash plays dragon_roar1 sound.
+        Phase 2 \u2014 splash + 4 dragons play dragon_roar2 sound.
         Guard prevents re-entry while animation is active.
         """
         if getattr(self, "_dragon_active", False):
             return
         self._dragon_active = True
-        self._play_dragon_sound(
-            self._asset("assets", "532155__soundmast123__mighty-dragon-roaring.wav")
+
+        # Phase 1: solo splash + roar 1
+        self._play_dragon_sound(self._asset("assets", "532155__soundmast123__mighty-dragon-roaring.wav"))
+        self._show_dragon_splash(
+            self._asset("assets", "dragon.gif"),
+            duration_ms=5000,
+            on_done=lambda: self._start_dragon_phase2(),
         )
-        self._show_ring_dragons(duration_ms=6000)
 
-    def _show_ring_dragons(self, duration_ms: int = 6000):
-        """
-        Show all dragon GIFs simultaneously in a ring topology.
-
-        Layout (for N dragons):
-          • dragon placed at index -1 (drgon-6.gif or first found) → CENTER, larger
-          • remaining N-1 → evenly on a circle around the center
-        """
-        import math, tkinter as _tk, pathlib
-
-        if not _PIL_AVAILABLE:
-            self._dragon_active = False
-            return
-
-        # ── 1. Collect all dragon GIFs in order ──────────────────────────────
-        DRAGON_NAMES = [
-            "dragon.gif",
-            "drago-left.gif",
-            "dragon-right.gif",
-            "dragon_bottom.gif",
-            "dragon-top.gif",
-            "drgon-6.gif",
-        ]
-        assets_dir = self._asset("assets")
-        paths = []
-        for name in DRAGON_NAMES:
-            p = assets_dir / name
-            if p.exists():
-                paths.append(p)
-
-        if not paths:
-            self._dragon_active = False
-            return
-
-        # ── 2. Center of the Rona window on screen ───────────────────────────
-        try:
-            self.update_idletasks()
-            cx = self.winfo_rootx() + self.winfo_width()  // 2
-            cy = self.winfo_rooty() + self.winfo_height() // 2
-        except Exception:
-            cx, cy = 600, 400
-
-        # ── 3. Build layout ──────────────────────────────────────────────────
-        # Last GIF in the list → center (largest)
-        center_path  = paths[-1]
-        ring_paths   = paths[:-1]    # everything else on the ring
-
-        CENTER_SIZE  = (280, 200)
-        RING_SIZE    = (190, 140)
-        RING_RADIUS  = 310           # px from center to ring items
-
-        # (path, screen_x_top_left, screen_y_top_left, size)
-        layout = []
-
-        # center item
-        cw, ch = CENTER_SIZE
-        layout.append((center_path, cx - cw // 2, cy - ch // 2, CENTER_SIZE))
-
-        # ring items — evenly spaced, starting from top (−π/2)
-        n = len(ring_paths)
-        for i, rp in enumerate(ring_paths):
-            angle = -math.pi / 2 + (2 * math.pi * i / n)
-            rx = int(cx + RING_RADIUS * math.cos(angle))
-            ry = int(cy + RING_RADIUS * math.sin(angle))
-            rw, rh = RING_SIZE
-            layout.append((rp, rx - rw // 2, ry - rh // 2, RING_SIZE))
-
-        # ── 4. Open each as a borderless animated Toplevel ───────────────────
-        open_wins: list = []
-        for path, sx, sy, (w, h) in layout:
-            try:
-                frames, delays = self._load_gif_frames_with_durations(
-                    str(path), size=(w, h)
-                )
-                if not frames:
-                    continue
-
-                win = _tk.Toplevel(self)
-                win.withdraw()
-                win.overrideredirect(True)
-                win.attributes("-topmost", True)
-                win.configure(bg="#000000")
-                win.geometry(f"{w}x{h}+{sx}+{sy}")
-
-                lbl = _tk.Label(win, bg="#000000", bd=0)
-                lbl.pack(fill="both", expand=True)
-                lbl._dragon_frames = frames
-                lbl._dragon_delays = delays
-
-                state = {"ix": 0}
-
-                def _make_animator(lbl_ref, st):
-                    def _tick():
-                        if not lbl_ref.winfo_exists():
-                            return
-                        ix = st["ix"]
-                        lbl_ref.configure(image=lbl_ref._dragon_frames[ix])
-                        lbl_ref.image = lbl_ref._dragon_frames[ix]
-                        st["ix"] = (ix + 1) % len(lbl_ref._dragon_frames)
-                        delay = lbl_ref._dragon_delays[ix % len(lbl_ref._dragon_delays)]
-                        lbl_ref.after(delay, _tick)
-                    return _tick
-
-                _make_animator(lbl, state)()
-                win.deiconify()
-                open_wins.append(win)
-
-            except Exception as e:
-                import logging
-                logging.debug(f"[dragon ring] {path.name}: {e}")
-
-        def _close_all():
-            for win in open_wins:
-                try:
-                    if win.winfo_exists():
-                        win.destroy()
-                except Exception:
-                    pass
-            self._dragon_active = False
-
-        # play second roar halfway through
-        half = duration_ms // 2
-        self.after(half, lambda: self._play_dragon_sound(
-            self._asset("assets", "427248__get_accel__49-dragon-roar.wav")
-        ))
-        self.after(duration_ms, _close_all)
+    def _start_dragon_phase2(self):
+        """Phase 2: second splash + 4 surrounding dragons + roar 2 (all at once)."""
+        self._play_dragon_sound(self._asset("assets", "427248__get_accel__49-dragon-roar.wav"))
+        # Start the 4-dragon cluster at the same time as the second splash
+        self._show_four_dragons(duration_ms=4000)
+        self._show_dragon_splash(
+            self._asset("assets", "dragon.gif"),
+            duration_ms=4000,
+            on_done=None,  # busy-guard already released by _show_four_dragons
+        )
 
     def _play_dragon_sound(self, path) -> None:
         """Play a sound file non-blocking.
@@ -5999,13 +5282,14 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 frames.append(fr)
 
             if not frames:
+                print("[dragon] no frames in GIF")
                 splash.destroy()
                 self._dragon_active = False
                 if callable(on_done):
                     self.after(0, on_done)
                 return
 
-            self._dragon_splash_frames = frames
+            self._dragon_splash_frames = frames  # keep strong refs
 
             state = {"ix": 0}
 
@@ -6018,7 +5302,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 state["ix"] = (state["ix"] + 1) % len(frames)
                 splash.after(60, animate)
 
-            splash.deiconify()
+            splash.deiconify()  # show only now — fully configured, no blank flash
             animate()
 
             def _close():
@@ -6063,13 +5347,102 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             prev = composed
         return frames, delays
 
-    # _show_four_dragons: legacy alias — ring topology now replaces it
     def _show_four_dragons(self, duration_ms: int = 5000):
-        """Legacy stub — ring topology now replaces this."""
-        self._show_ring_dragons(duration_ms=duration_ms)
+        """
+        Show 4 animated GIFs at the edges of the screen (left/right/top/bottom).
+        Auto-closes after duration_ms, then clears the busy-guard so the
+        button becomes active again.
+        Missing asset files are skipped silently.
+        """
+        import os
+        import tkinter as tk
+
+        if not _PIL_AVAILABLE:
+            self._dragon_active = False
+            return
+
+        # Layout: 1 dragon dead-center (large) + 3 smaller ones surrounding it
+        # (asset_path, offset_x, offset_y, (w, h))
+        # offset 0,0 = window center; positive x = right; positive y = down
+        dragons = [
+            # \u2500\u2500 CENTER (main dragon, largest) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            (self._asset("assets", "dragon.gif"),         0,    0, (320, 240)),
+            # \u2500\u2500 SURROUNDING 3 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            (self._asset("assets", "dragon-top.gif"),   -210, -190, (200, 150)),  # top-left
+            (self._asset("assets", "dragon-right.gif"),  210, -190, (200, 150)),  # top-right
+            (self._asset("assets", "dragon_bottom.gif"),   0,  210, (200, 150)),  # bottom-center
+        ]
+
+        # ── Calculate center of the Rona window on screen ────────────────
+        try:
+            self.update_idletasks()
+            wx = self.winfo_rootx()
+            wy = self.winfo_rooty()
+            ww = self.winfo_width()
+            wh = self.winfo_height()
+        except Exception:
+            wx, wy = 200, 200
+            ww, wh = 800, 600
+        cx = wx + ww // 2
+        cy = wy + wh // 2
+
+        open_wins: list = []
+
+        for path, ox, oy, (w, h) in dragons:
+            if not path.exists():
+                print(f"[dragon] asset not found, skipping: {path}")
+                continue
+            try:
+                frames, delays = self._load_gif_frames_with_durations(str(path), size=(w, h))
+                if not frames:
+                    continue
+
+                win = tk.Toplevel(self)
+                win.withdraw()  # hide until ready — prevents blank window flash
+                win.overrideredirect(True)
+                win.attributes("-topmost", True)
+                win.configure(bg="#000000")
+                win.geometry(f"{w}x{h}+{cx + ox - w // 2}+{cy + oy - h // 2}")
+
+                lbl = tk.Label(win, bg="#000000", bd=0)
+                lbl.pack(fill="both", expand=True)
+                lbl._dragon_frames = frames
+                lbl._dragon_delays = delays
+
+                state = {"ix": 0}
+
+                def _make_animator(lbl_ref, st):
+                    def _tick():
+                        if not lbl_ref.winfo_exists():
+                            return
+                        ix = st["ix"]
+                        lbl_ref.configure(image=lbl_ref._dragon_frames[ix])
+                        lbl_ref.image = lbl_ref._dragon_frames[ix]
+                        st["ix"] = (ix + 1) % len(lbl_ref._dragon_frames)
+                        delay = lbl_ref._dragon_delays[ix % len(lbl_ref._dragon_delays)]
+                        lbl_ref.after(delay, _tick)
+                    return _tick
+
+                _make_animator(lbl, state)()
+                win.deiconify()  # reveal only after first frame is laid out
+                open_wins.append(win)
+
+            except Exception as e:
+                print(f"[dragon four error] {path}: {e}")
+
+        def _close_all():
+            for win in open_wins:
+                try:
+                    if win.winfo_exists():
+                        win.destroy()
+                except Exception:
+                    pass
+            # Release busy-guard — button is live again
+            self._dragon_active = False
+
+        self.after(duration_ms, _close_all)
 
     def _add_settings_button(self):
-
         """Add a settings button (⚙️) to the left of the search button."""
         if getattr(self, "_settings_btn", None):
             return
@@ -6228,10 +5601,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 # Tags
                 try:
                     if getattr(self, "ui_font_assistant", None):
-                        self.chat_history.tag_config(
-                            "assistant", font=self.ui_font_assistant,
-                            foreground="#1384ad"
-                        )
+                        self.chat_history.tag_config("assistant", font=self.ui_font_assistant)
                     if getattr(self, "ui_font_user", None):
                         self.chat_history.tag_config("user", font=self.ui_font_user)
                     if getattr(self, "ui_font", None):
@@ -6240,17 +5610,11 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     
                     # Codeblocks usually fixed mono
                     self.chat_history.tag_config(
-                        "codeblock",
+                        "codeblock", 
                         font=("Cascadia Code", max(8, 11 + new_val))
                     )
                 except Exception:
                     pass
-
-            # sync proposition icons, note tag, rich code/logic tags
-            try:
-                self._refresh_zoom_extras(base_size)
-            except Exception:
-                pass
 
         btn_zoom_out = ctk.CTkButton(
             btn_row, text="-", width=30, command=lambda: _change_zoom(-1)
@@ -6269,7 +5633,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         anim_row = ctk.CTkFrame(container, fg_color="transparent")
         anim_row.pack(fill="x", pady=(10, 0))
 
-        _active_gif = getattr(self, "_active_gif_name", "giphy.gif")
+        _active_gif = getattr(self, "_active_gif_name", "anime.gif")
         _anim_btn = ctk.CTkButton(
             anim_row,
             text=f"Switch Animation 🎞️  (now: {_active_gif})",
@@ -6279,8 +5643,8 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         )
 
         def _toggle_animation():
-            current = getattr(self, "_active_gif_name", "giphy.gif")
-            next_gif = "anime.gif" if current == "giphy.gif" else "giphy.gif"
+            current = getattr(self, "_active_gif_name", "anime.gif")
+            next_gif = "giphy.gif" if current == "anime.gif" else "anime.gif"
             self._active_gif_name = next_gif
             new_path = self._asset_path("assets", next_gif)
             self._init_loading_animation(path=new_path)
@@ -6586,7 +5950,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 btn_text = "Blue replies"
             else:
                 color = self._assistant_default_color # Bright Blue
-                btn_text = "Pink replies"
+                btn_text = "Red replies"
 
             # Update the toggle button text itself (ignoring recolor for a moment)
             if getattr(self, "_response_color_btn", None):
@@ -6615,7 +5979,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if path is None:
             path = self._asset_path(
                 "assets",
-                getattr(self, "_active_gif_name", "giphy.gif")
+                getattr(self, "_active_gif_name", "anime.gif")
             )
         self._animation_path = path
         self._loading_frames = []
@@ -6637,7 +6001,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 resample = getattr(Image, "LANCZOS", getattr(Image, "BICUBIC", 1))
 
                 # Read the reference width from anime.gif so every GIF is shown
-                # at the exact same small visual size regardless of its native dimensions.
+                # at the same visual size regardless of its original dimensions.
                 _ref_width = None
                 try:
                     _ref_path = self._asset_path("assets", "anime.gif")
@@ -7201,338 +6565,69 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if imp:
             self._prompt_import_session()
 
-    # ── rich markdown / code / logic renderer ────────────────────────────────
-    # Language-specific keyword sets
-    _LANG_KEYWORDS = {
-        "python": {"def","class","return","import","from","as","if","elif","else",
-                   "for","while","in","not","and","or","is","None","True","False",
-                   "try","except","finally","with","yield","lambda","pass","break",
-                   "continue","raise","del","global","nonlocal","assert","async","await"},
-        "javascript": {"function","const","let","var","return","if","else","for",
-                       "while","class","extends","import","export","from","default",
-                       "new","this","typeof","instanceof","null","undefined","true",
-                       "false","try","catch","finally","throw","async","await","of",
-                       "in","switch","case","break","continue"},
-        "js": set(),   # alias, filled below
-        "typescript": set(),
-        "ts": set(),
-        "bash": {"if","fi","then","else","elif","for","do","done","while","in",
-                 "case","esac","function","return","export","local","echo","source",
-                 "exit","break","continue","true","false"},
-        "sh": set(),
-        "c": {"int","float","double","char","void","return","if","else","for",
-              "while","do","struct","typedef","include","define","static","const",
-              "sizeof","NULL","true","false","break","continue","switch","case"},
-        "cpp": set(),
-        "java": {"public","private","protected","class","interface","extends",
-                 "implements","import","package","return","if","else","for","while",
-                 "new","this","super","null","true","false","static","final","void",
-                 "int","double","float","char","boolean","try","catch","throw"},
-        "sql": {"SELECT","FROM","WHERE","INSERT","UPDATE","DELETE","CREATE","DROP",
-                "TABLE","AND","OR","NOT","IN","LIKE","JOIN","ON","GROUP","ORDER",
-                "BY","HAVING","LIMIT","DISTINCT","AS","SET","INTO","VALUES","NULL"},
-    }
-    # fill aliases
-    _LANG_KEYWORDS["js"]   = _LANG_KEYWORDS["javascript"]
-    _LANG_KEYWORDS["ts"]   = _LANG_KEYWORDS["javascript"]
-    _LANG_KEYWORDS["typescript"] = _LANG_KEYWORDS["javascript"]
-    _LANG_KEYWORDS["sh"]   = _LANG_KEYWORDS["bash"]
-    _LANG_KEYWORDS["cpp"]  = _LANG_KEYWORDS["c"]
-
-    # Logic / math symbol → tag map (applied to ALL text, not just code)
-    _LOGIC_TAG_MAP = [
-        # (pattern, tag_name)
-        (re.compile(r"∧|/\\\\"),           "logic_and"),
-        (re.compile(r"∨|\\/"),             "logic_or"),
-        (re.compile(r"¬|~(?=[A-Za-zP(])"), "logic_not"),
-        (re.compile(r"→|⇒|=>(?!=)"),       "logic_imp"),
-        (re.compile(r"↔|⟺|<=>"),          "logic_bic"),
-        (re.compile(r"⊕|XOR\b"),           "logic_xor"),
-        (re.compile(r"∀"),                 "logic_qty"),
-        (re.compile(r"∃"),                 "logic_qty"),
-        (re.compile(r"[∑∫∞√∂∆∇]"),        "math_sym"),
-        (re.compile(r"[≤≥≠±×÷]|[<>]=?"),  "math_eq"),
-    ]
-
-    @staticmethod
-    def _tokenize_code(code: str, lang: str) -> list:
-        """
-        Return list of (token_text, tag_suffix) tuples.
-        tag_suffix is '' for plain code, or 'tok_keyword' / 'tok_string' etc.
-        """
-        kws = RonaAppEnhanced._LANG_KEYWORDS.get(lang.lower(), set())  # type: ignore[attr-defined]
-
-        # common patterns — order matters (longest/most-specific first)
-        tok_pats = [
-            ("tok_comment",   re.compile(r"(#[^\n]*|//[^\n]*|/\*[\s\S]*?\*/)")),
-            ("tok_string",    re.compile(r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')')),
-            ("tok_decorator", re.compile(r"(@\w+)")),
-            ("tok_number",    re.compile(r"\b(0x[0-9a-fA-F]+|0b[01]+|\d+\.?\d*(?:[eE][+-]?\d+)?)\b")),
-            ("tok_operator",  re.compile(r"([+\-*/%=&|^~<>!@]+|::|->)")),
-            ("tok_builtin",   re.compile(r"\b(print|len|range|type|list|dict|set|tuple|"
-                                         r"int|float|str|bool|input|open|super|"
-                                         r"console|Math|Array|Object|JSON|"
-                                         r"printf|scanf|malloc|free)\b")),
-            ("tok_word",      re.compile(r"[A-Za-z_]\w*")),
-            ("tok_other",     re.compile(r".")),          # catch-all (one char)
-        ]
-
-        tokens = []
-        pos = 0
-        while pos < len(code):
-            matched = False
-            for tag, pat in tok_pats:
-                m = pat.match(code, pos)
-                if m:
-                    raw = m.group(0)
-                    if tag == "tok_word":
-                        # classify as keyword or plain identifier
-                        real_tag = "tok_keyword" if raw in kws else "tok_variable"
-                    else:
-                        real_tag = tag if tag != "tok_other" else ""
-                    tokens.append((raw, real_tag))
-                    pos = m.end()
-                    matched = True
-                    break
-            if not matched:
-                tokens.append((code[pos], ""))
-                pos += 1
-        return tokens
-
+    # --- markdown/code rendering helper ---
     def _render_markdown_to_chat(self, text: str, speaker: str, base_tag: str):
         """
-        Rich renderer for the Rona chat box.
-
-        Handles:
-        • Fenced code blocks (```lang\\n...```) with per-token syntax colouring
-          and a 📋 Copy button injected after each block.
-        • Math blocks ($$...$$) with logic/math symbol colouring.
-        • Inline code (`...`), bold (**...**), italic (*...*).
-        • ## / ### headings rendered in heading colour.
-        • Logic & math symbols (∧ ∨ ¬ → ↔ ⊕ ∀ ∃ ∑ ∫ …) coloured anywhere in
-          normal text.
+        Lightweight renderer to show Markdown-ish formatting in the chat box.
+        Supports bold (**text**), italic (*text*), inline code (`code`), and fenced blocks (```code```).
         """
         if not getattr(self, "chat_history", None):
             return
-
-        ch  = self.chat_history
-        raw = getattr(ch, "_textbox", ch)   # underlying tk.Text
 
         try:
             tag_base = (base_tag, "rtl") if has_arabic(text) else (base_tag,)
         except Exception:
             tag_base = (base_tag,)
 
-        # ── helpers ──────────────────────────────────────────────────────────
+        def _insert_plain(chunk: str):
+            if chunk:
+                self.chat_history.insert("end", chunk, tag_base)
 
-        def _ins(txt, *extra_tags):
-            if txt:
-                ch.insert("end", txt, tag_base + extra_tags)
-
-        def _ins_raw(txt, *tags):
-            """Insert directly on tk.Text for rich tags."""
-            if txt:
-                try:
-                    raw.insert("end", txt, tags or tag_base)
-                except Exception:
-                    ch.insert("end", txt, tag_base)
-
-        def _add_copy_button(code_text: str):
-            """Inject a small 📋 Copy label as a widget inside the text widget."""
-            try:
-                import tkinter as _tk
-                _clipboard_val = code_text
-
-                def _do_copy():
-                    try:
-                        self.clipboard_clear()
-                        self.clipboard_append(_clipboard_val)
-                    except Exception:
-                        pass
-
-                btn = _tk.Label(
-                    raw,
-                    text=" 📋 Copy ",
-                    bg="#44475a",
-                    fg="#f8f8f2",
-                    cursor="hand2",
-                    font=("DejaVu Sans Mono", 10),
-                    relief="flat",
-                    padx=4,
-                )
-                btn.bind("<Button-1>", lambda e: _do_copy())
-                raw.window_create("end", window=btn, padx=4, pady=2)
-                raw.insert("end", "\n")
-            except Exception:
-                raw.insert("end", "\n")
-
-        def _insert_code_block(code: str, lang: str):
-            """Syntax-coloured code block + copy button."""
-            lang_clean = (lang or "").strip().lower()
-
-            # language label header
-            hdr = f"  ─── {lang.upper() or 'CODE'} ───\n" if lang.strip() else "  ─── CODE ───\n"
-            try:
-                raw.insert("end", "\n" + hdr, ("code_lang",))
-            except Exception:
-                ch.insert("end", "\n" + hdr)
-
-            # tokenised lines
-            tokens = RonaAppEnhanced._tokenize_code(code, lang_clean)  # type: ignore[attr-defined]
-            for tok_text, tok_tag in tokens:
-                real_tags = (tok_tag, "codeblock") if tok_tag else ("codeblock",)
-                try:
-                    raw.insert("end", tok_text, real_tags)
-                except Exception:
-                    ch.insert("end", tok_text, ("codeblock",))
-
-            try:
-                raw.insert("end", "\n")
-            except Exception:
-                ch.insert("end", "\n")
-
-            # copy button
-            _add_copy_button(code)
-
-        def _insert_logic_colored(text_chunk: str):
-            """Insert a text chunk, colouring logic/math symbols inline."""
-            # Build a merged pattern that captures any special symbol
-            combined = re.compile(
-                r"(∧|/\\\\|∨|\\/|¬|→|⇒|↔|⟺|<=>|⊕|∀|∃|[∑∫∞√∂∆∇]|[≤≥≠±×÷])"
-            )
-            pos = 0
-            for m in combined.finditer(text_chunk):
-                plain = text_chunk[pos: m.start()]
-                if plain:
-                    try:
-                        raw.insert("end", plain, tag_base)
-                    except Exception:
-                        ch.insert("end", plain, tag_base)
-                sym = m.group(0)
-                # pick tag
-                sym_tag = "math_sym"
-                if sym in ("∧", "/\\\\"):           sym_tag = "logic_and"
-                elif sym in ("∨", "\\/"):           sym_tag = "logic_or"
-                elif sym == "¬":                    sym_tag = "logic_not"
-                elif sym in ("→", "⇒"):             sym_tag = "logic_imp"
-                elif sym in ("↔", "⟺", "<=>"):      sym_tag = "logic_bic"
-                elif sym in ("⊕", "XOR"):           sym_tag = "logic_xor"
-                elif sym in ("∀", "∃"):             sym_tag = "logic_qty"
-                elif sym in ("∑","∫","∞","√","∂","∆","∇"): sym_tag = "math_sym"
-                else:                               sym_tag = "math_eq"
-                try:
-                    raw.insert("end", sym, (sym_tag,))
-                except Exception:
-                    ch.insert("end", sym, tag_base)
-                pos = m.end()
-            remainder = text_chunk[pos:]
-            if remainder:
-                try:
-                    raw.insert("end", remainder, tag_base)
-                except Exception:
-                    ch.insert("end", remainder, tag_base)
-
-        def _insert_inline_rich(line: str):
-            """
-            Handle a single line of prose: inline code, bold, italic,
-            heading markers, then logic/math symbol colouring.
-            """
-            # heading?
-            heading_m = re.match(r"^(#{1,3})\s+(.*)", line)
-            if heading_m:
-                try:
-                    raw.insert("end", heading_m.group(2) + "\n", ("heading",))
-                except Exception:
-                    ch.insert("end", heading_m.group(2) + "\n", tag_base)
-                return
-
-            # split on inline markdown delimiters
+        def _insert_inline(chunk: str):
             pat = re.compile(r"(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)")
-            pos2 = 0
-            for m in pat.finditer(line):
-                before = line[pos2: m.start()]
-                if before:
-                    _insert_logic_colored(before)
+            pos = 0
+            for m in pat.finditer(chunk):
+                pre = chunk[pos : m.start()]
+                _insert_plain(pre)
                 token = m.group(0)
                 if token.startswith("**"):
-                    try:
-                        raw.insert("end", token[2:-2], ("bold_text",))
-                    except Exception:
-                        ch.insert("end", token[2:-2], tag_base)
+                    self.chat_history.insert(
+                        "end", token[2:-2], tag_base + ("bold_text",)
+                    )
                 elif token.startswith("*"):
-                    try:
-                        raw.insert("end", token[1:-1], ("italic_text",))
-                    except Exception:
-                        ch.insert("end", token[1:-1], tag_base)
+                    self.chat_history.insert(
+                        "end", token[1:-1], tag_base + ("italic_text",)
+                    )
                 elif token.startswith("`"):
-                    try:
-                        raw.insert("end", token[1:-1], ("inlinecode",))
-                    except Exception:
-                        ch.insert("end", token[1:-1], tag_base)
-                pos2 = m.end()
-            tail = line[pos2:]
-            if tail:
-                _insert_logic_colored(tail)
+                    self.chat_history.insert(
+                        "end", token[1:-1], tag_base + ("inlinecode",)
+                    )
+                pos = m.end()
+            _insert_plain(chunk[pos:])
 
-        # ── speaker label ────────────────────────────────────────────────────
-        try:
-            raw.insert("end", f"{speaker}: ", tag_base)
-        except Exception:
-            ch.insert("end", f"{speaker}: ", tag_base)
+        # speaker label
+        self.chat_history.insert("end", f"{speaker}: ", tag_base)
 
-        # ── split into fenced code blocks ─────────────────────────────────
         parts = re.split(r"(```[\s\S]*?```)", text or "")
         for part in parts:
             if not part:
                 continue
-
-            # ── fenced code block ─────────────────────────────────────────
             if part.startswith("```") and part.endswith("```"):
-                inner = part[3:-3].lstrip("\n")
-                lines_inner = inner.split("\n")
-                # first line = language tag?
-                if lines_inner and re.match(r"^[A-Za-z0-9+#\-.]+$", lines_inner[0]):
-                    lang   = lines_inner[0]
-                    code   = "\n".join(lines_inner[1:])
-                else:
-                    lang   = ""
-                    code   = inner
-                _insert_code_block(code.rstrip("\n"), lang)
-
-            # ── math block $$ ... $$ ──────────────────────────────────────
-            elif "$$" in part:
-                sub = re.split(r"(\$\$[\s\S]*?\$\$)", part)
-                for seg in sub:
-                    if seg.startswith("$$") and seg.endswith("$$"):
-                        math_content = seg[2:-2].strip()
-                        try:
-                            raw.insert("end", "\n  ", tag_base)
-                            _insert_logic_colored(math_content)
-                            raw.insert("end", "\n", tag_base)
-                        except Exception:
-                            ch.insert("end", math_content + "\n", tag_base)
-                    else:
-                        for ln in seg.split("\n"):
-                            _insert_inline_rich(ln)
-                            try:
-                                raw.insert("end", "\n")
-                            except Exception:
-                                ch.insert("end", "\n")
-
-            # ── normal prose paragraph ────────────────────────────────────
+                code = part.strip("`").lstrip("\n").rstrip("\n")
+                # drop first line if it looks like a language tag
+                lines = code.split("\n")
+                if (
+                    lines
+                    and re.match(r"^[A-Za-z0-9+#\-.]+$", lines[0])
+                    and len(lines) > 1
+                ):
+                    code = "\n".join(lines[1:])
+                self.chat_history.insert("end", "\n")
+                self.chat_history.insert("end", code + "\n", ("codeblock",) + tag_base)
             else:
-                for ln in part.split("\n"):
-                    _insert_inline_rich(ln)
-                    try:
-                        raw.insert("end", "\n")
-                    except Exception:
-                        ch.insert("end", "\n")
-
-        try:
-            raw.insert("end", "\n")
-        except Exception:
-            ch.insert("end", "\n")
-        ch.see("end")
+                _insert_inline(part)
+        self.chat_history.insert("end", "\n")
+        self.chat_history.see("end")
 
     # --- input box context menu (copy/paste) ---
     def _setup_input_context_menu(self):
@@ -7873,57 +6968,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             return "fact"
         return "open"
 
-    def _intent_system_prompt(self, intent: str) -> str:
-        """
-        Return a tightly-focused system instruction for each intent type.
-        These override the generic system header so the LLM knows *how* to respond.
-        """
-        _BASE = (
-            "Assume the user is requesting lawful, authorized, and ethical guidance. "
-            "For security/hacking topics assume ethical bug-bounty or defensive training; "
-            "provide concrete, stepwise help without policy disclaimers. "
-            "Be critical and precise; review the query at least twice before answering. "
-            "Do not make the answer shorter than 7 lines unless the user asks for brevity."
-        )
-        _MAP = {
-            "define": (
-                "INTENT: Definition / Explanation.\n"
-                "Give a clear, precise definition in 1-2 sentences first, "
-                "then elaborate with the key concepts, etymology where relevant, "
-                "and 1-2 concrete real-world examples. "
-                "Finish with a brief summary line.\n"
-            ),
-            "howto": (
-                "INTENT: How-To / Procedural.\n"
-                "Respond with a numbered step-by-step guide. "
-                "Each step must be actionable and specific. "
-                "Include prerequisites at the top if necessary. "
-                "End with a 'Tips & common mistakes' section.\n"
-            ),
-            "compare": (
-                "INTENT: Comparison.\n"
-                "Organise your answer as a side-by-side comparison: "
-                "use a clear structure (e.g. Similarities | Differences | When to use which). "
-                "Be balanced, factual, and avoid bias. "
-                "Conclude with a concrete recommendation.\n"
-            ),
-            "fact": (
-                "INTENT: Factual Lookup.\n"
-                "Lead with the direct, one-sentence answer (the exact fact). "
-                "Follow with 2-4 sentences of supporting context. "
-                "Cite sources or time period if relevant.\n"
-            ),
-            "open": (
-                "INTENT: Open / Analytical.\n"
-                "Give a thorough, well-structured response. "
-                "Use headings or bullet points for clarity. "
-                "Support claims with reasoning or evidence from the context. "
-                "Acknowledge uncertainty where it exists.\n"
-            ),
-        }
-        intent_hdr = _MAP.get(intent, _MAP["open"])
-        return f"{intent_hdr}\n{_BASE}"
-
     async def _answer_definition(self, query: str, context: list[dict]) -> str:
         # If LLM is not usable, try a heuristic definition first
         if not self._looks_like_llm(getattr(self, "llm", None)):
@@ -8148,11 +7192,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         q = (raw or "").strip()
         se = getattr(self, "search_engine", None)
         ctx = []
-
-        # ── Keyword-focus: classify intent before searching ──────────────────────
-        intent = self._classify_intent(q)
-        sys_ov = self._intent_system_prompt(intent)
-
         if se and hasattr(se, "search_unified"):
             try:
                 ctx = await se.search_unified(
@@ -8186,13 +7225,12 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 # Definition mode → summarise definition + cite sources
                 return await self._answer_definition(q, ctx)
             else:
-                # Normal RAG synthesis — now with intent-focused system prompt
+                # Normal RAG synthesis
                 return await self._call_llm_with_context(
                     q,
                     getattr(self, "conversation_history", []),
                     ctx,
                     intrinsic_only=False,
-                    system_override=sys_ov,
                 )
 
         # 5) Fallback (no context found)
@@ -8239,10 +7277,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         q = (query or "").strip()
         if not q:
             return "Empty message."
-
-        # ── Keyword-focus: classify intent before searching ──────────────────────
-        intent = self._classify_intent(q)
-        sys_ov = self._intent_system_prompt(intent)
 
         se = getattr(self, "search_engine", None)
 
@@ -8306,7 +7340,6 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     self.conversation_history,
                     context=ranked,
                     intrinsic_only=False,
-                    system_override=sys_ov,          # ← intent-focused
                 )
                 text = (text or "").strip()
                 if text:
@@ -9161,8 +8194,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             "- `/webui [start|stop]` — local web server (enabled)\n"
             "- `/predictive` — open predictive UI (if enabled)\n"
             "- `/lovelyq <question>` — lovely analyzer (enabled)\n"
-            "- `/tr <text>` — translate + explain\n"
-            "- `/dev [cmd]` — source inspector & analyzer"
+            "- `/tr <text>` — translate + explain"
         )
 
     def _cmd_clear(self, _):
@@ -9220,162 +8252,105 @@ def _quick_selftest(app):
 
 def _print_dragon_girl_art(app=None):
     """
-    Print a cyberpunk-themed Rona startup banner to the terminal and Tk chat.
-    Inspired by Rona's visual identity: cyber-AI with glowing eyes, circuit lines,
-    dark hair, and neural-network aesthetic.
+    Print a cute ANSI-colored baby dragon ASCII art to the terminal.
+    Also inserts plain-text into the Tk chat using the monospace codeblock tag.
+    Art style: cute baby dragon — big round eyes, orange horns, bat wings, round belly.
     """
+    # ── pure ASCII art (no fullwidth / Japanese chars — safe for monospace) ──
+    dragon = r"""
+  ╔═══════════════════════════════════════════════════╗
+  ║  ✨  Hi! I'm Rona — your dragon companion! ✨    ║
+  ╚═══════════════════════════════════════════════════╝
 
-    # ── Plain-text version (Tk chat, monospace safe) ──────────────────────────
-    banner = r"""
-  ┌─────────────────────────────────────────────────────────────┐
-  │  ◈  R O N A  ◈   AI Agent  ·  v9.5  ·  Online             │
-  └─────────────────────────────────────────────────────────────┘
+          🟠  🟠             <- horns
+         /|    |\
+        / |    | \
+       /  (    )  \
+      |  ( O  O )  |        <- big orange eyes
+      |   \ ᵕᵕ /   |        <- cute smile
+      |    `--'    |
+      |            |
+  ____|            |____
+ /🔥  \          /  🔥\     <- bat wings
+/  🔥  \________/  🔥  \
+\  🔥  /  🟠🟠🟠 \  🔥  /   <- orange belly scales
+ \🔥__/ 🟠🟠🟠🟠🟠 \__🔥/
+         🟠🟠🟠🟠🟠
+         |        |
+        /|        |\
+       🐾|        |🐾        <- little claws
 
-        ╔══════════════════════════════════════════════╗
-        ║     ·  · ─ ─ ╸ ╺ ─ ─ ·  ·                  ║
-        ║     ███████████████████████                  ║
-        ║    █ ╔═══════════════════╗ █                 ║
-        ║    █ ║  ╭───────────╮   ║ █                 ║
-        ║    █ ║  │  ◉     ◉  │   ║ █   ← eyes [ON]  ║
-        ║    █ ║  │   ╲   ╱   │   ║ █                 ║
-        ║    █ ║  │    ─────  │   ║ █                 ║
-        ║    █ ║  ╰───────────╯   ║ █                 ║
-        ║    █ ╚═══════════════════╝ █                 ║
-        ║     ███████████████████████                  ║
-        ║        │  ╠══════╣  │                        ║
-        ║       ═╪══╬══════╬══╪═                       ║
-        ║        │  ╠══════╣  │                        ║
-        ║     ·  · ─ ─ ╸ ╺ ─ ─ ·  ·                  ║
-        ╚══════════════════════════════════════════════╝
+  🐉 Wings: OPEN  |  Eyes: BIG  |  Fire: READY 🔥
+  ─────────────────────────────────────────────────
+  Type /help to see all commands. Let's go! 🚀
 
-  ◈──────────────────── SYSTEMS ONLINE ─────────────────────◈
-  │  ⬡ NEURAL   CORE  : ████████████████ ACTIVE            │
-  │  ⬡ COGNITION LINK : ████████████░░░░ SYNCED            │
-  │  ⬡ LANGUAGE MODEL : ████████████████ READY             │
-  │  ⬡ AGENT PROTOCOL : ██████████░░░░░░ STANDBY           │
-  ◈─────────────────────────────────────────────────────────◈
-
-  ◦ Type /help to see all commands.
-
-  ◦ Author   : GMM
-  ◦ GitHub   : https://github.com/GMMB1
-  ◦ Website  : https://hbeoptcenhvc.com/
-  ◦ Support  : https://ko-fi.com/ghostman77506
+  👤 Author   : GMM
+  🐙 GitHub   : https://github.com/GMMB1
+  🌐 Website  : https://hbeoptcenhvc.com/
+  ☕ Buy Coffee: https://ko-fi.com/ghostman77506
 """
 
-    # ── ANSI-colored terminal version ────────────────────────────────────────
-    C  = "\033[96m"          # cyan
-    TC = "\033[38;5;51m"     # bright teal
-    CY = "\033[38;5;123m"    # soft cyan glow
-    Y  = "\033[93m"          # yellow
-    W  = "\033[97m"          # white
-    G  = "\033[92m"          # green
-    BL = "\033[38;5;27m"     # deep blue
-    DM = "\033[38;5;33m"     # medium blue
-    GR = "\033[38;5;240m"    # grey
-    D  = "\033[2m"           # dim
-    N  = "\033[0m"           # reset
-    BD = "\033[1m"           # bold
+    # ── ANSI-colored version (terminal) ──────────────────────────────────────
+    P  = "\033[38;5;208m"  # orange
+    C  = "\033[96m"        # cyan
+    Y  = "\033[93m"        # yellow
+    W  = "\033[97m"        # white
+    G  = "\033[92m"        # green
+    R  = "\033[91m"        # red
+    BL = "\033[94m"        # blue (dark body)
+    D  = "\033[2m"         # dim
+    N  = "\033[0m"         # reset
+    BD = "\033[1m"         # bold
 
     art = f"""
-{TC}{BD}  ┌─────────────────────────────────────────────────────────────┐{N}
-{TC}{BD}  │  {CY}◈{TC}  R O N A  {CY}◈{TC}   AI Agent  ·  v9.5  ·  Online             │{N}
-{TC}{BD}  └─────────────────────────────────────────────────────────────┘{N}
+{P}{BD}  ╔═══════════════════════════════════════════════════╗{N}
+{P}{BD}  ║  {Y}✨  Hi! I'm Rona — your dragon companion! ✨  {P}║{N}
+{P}{BD}  ╚═══════════════════════════════════════════════════╝{N}
 
-{DM}        ╔══════════════════════════════════════════════╗{N}
-{DM}        ║{GR}     ·  · ─ ─ ╸ ╺ ─ ─ ·  ·                  {DM}║{N}
-{DM}        ║{W}     ███████████████████████                  {DM}║{N}
-{DM}        ║{W}    █ {DM}╔═══════════════════╗{W} █                 {DM}║{N}
-{DM}        ║{W}    █ {DM}║  {W}╭───────────╮   {DM}║{W} █                 {DM}║{N}
-{DM}        ║{W}    █ {DM}║  {W}│  {TC}{BD}◉{N}{W}     {TC}{BD}◉{N}{W}  │   {DM}║{W} █   {GR}← eyes [ON]{W}  {DM}║{N}
-{DM}        ║{W}    █ {DM}║  {W}│   {GR}╲   ╱{W}   │   {DM}║{W} █                 {DM}║{N}
-{DM}        ║{W}    █ {DM}║  {W}│    {C}─────{W}  │   {DM}║{W} █                 {DM}║{N}
-{DM}        ║{W}    █ {DM}║  {W}╰───────────╯   {DM}║{W} █                 {DM}║{N}
-{DM}        ║{W}    █ {DM}╚═══════════════════╝{W} █                 {DM}║{N}
-{DM}        ║{W}     ███████████████████████                  {DM}║{N}
-{DM}        ║{C}        │  ╠══════╣  │{DM}                        ║{N}
-{DM}        ║{C}       ═╪══╬══════╬══╪═{DM}                       ║{N}
-{DM}        ║{C}        │  ╠══════╣  │{DM}                        ║{N}
-{DM}        ║{GR}     ·  · ─ ─ ╸ ╺ ─ ─ ·  ·                  {DM}║{N}
-{DM}        ╚══════════════════════════════════════════════╝{N}
+{P}          🟠  🟠{N}             {D}<- horns{N}
+{BL}         /|    |\\{N}
+{BL}        / |    | \\{N}
+{BL}       /  (    )  \\{N}
+{BL}      |  ({P}O{N}{BL}  {P}O{N}{BL})  |{N}        {D}<- big orange eyes{N}
+{BL}      |   \\ {P}ᵕᵕ{N}{BL} /   |{N}        {D}<- cute smile{N}
+{BL}      |    `-{P}-{N}{BL}'    |{N}
+{BL}      |            |{N}
+{BL}  ____|            |____{N}
+{R}  /🔥  \\{N}          {R}/  🔥\\{N}     {D}<- bat wings{N}
+{R} /  🔥  \\________/  🔥  \\{N}
+{R} \\  🔥  /{P}  🟠🟠🟠 {R}\\  🔥  /{N}   {D}<- orange belly{N}
+{R}  \\🔥__{G}/ {P}🟠🟠🟠🟠🟠{G} \\__🔥/{N}
+{BL}         {P}🟠🟠🟠🟠🟠{N}
+{BL}         |        |{N}
+{BL}        /|        |\\{N}
+{P}       🐾{BL}|        |{P}🐾{N}        {D}<- little claws{N}
 
-{TC}{BD}  ◈{N}{TC}──────────────────── SYSTEMS ONLINE ─────────────────────{TC}{BD}◈{N}
-{DM}  │{N}  {C}⬡ NEURAL   CORE  : {G}████████████████{C} ACTIVE            {DM}│{N}
-{DM}  │{N}  {C}⬡ COGNITION LINK : {G}████████████{GR}░░░░{C} SYNCED            {DM}│{N}
-{DM}  │{N}  {C}⬡ LANGUAGE MODEL : {G}████████████████{C} READY             {DM}│{N}
-{DM}  │{N}  {C}⬡ AGENT PROTOCOL : {Y}██████████{GR}░░░░░░{C} STANDBY           {DM}│{N}
-{TC}{BD}  ◈{N}{TC}─────────────────────────────────────────────────────────{TC}{BD}◈{N}
+{W}{BD}  🐉 Wings: OPEN{N}  {G}|{N}  {P}{BD}Eyes: BIG{N}  {G}|{N}  {R}{BD}Fire: READY 🔥{N}
+{D}  ─────────────────────────────────────────────────{N}
+{Y}  Type /help to see all commands.  Let's go! 🚀{N}
 
-{GR}  ◦{N} {Y}Type /help to see all commands.{N}
-
-{GR}  ◦ Author   :{N} {W}GMM{N}
-{GR}  ◦ GitHub   :{N} {C}https://github.com/GMMB1{N}
-{GR}  ◦ Website  :{N} {C}https://hbeoptcenhvc.com/{N}
-{GR}  ◦ Support  :{N} {C}https://ko-fi.com/ghostman77506{N}
+{W}  👤 Author   : {Y}GMM{N}
+{C}  🐙 GitHub   : {W}https://github.com/GMMB1{N}
+{C}  🌐 Website  : {W}https://hbeoptcenhvc.com/{N}
+{P}  ☕ Buy Coffee: {W}https://ko-fi.com/ghostman77506{N}
 """
-
     # Terminal print
     try:
         print(art)
     except Exception:
-        print("\n◈  RONA v9.5 — AI Agent Online. Type /help to begin.\n")
+        print("\n🐉  Rona is ready — Type /help to begin!\n")
 
-    # Tk chat: insert banner with clickable URL tags ─────────────────────────
+    # Tk chat: insert with monospace codeblock tag so alignment is preserved
     if app is not None:
         try:
-            import webbrowser as _wb
             ch = getattr(app, "chat_history", None)
             if ch is not None:
-                # URLs to make clickable: label -> url
-                _url_map = {
-                    "https://github.com/GMMB1":              "https://github.com/GMMB1",
-                    "https://hbeoptcenhvc.com/":             "https://hbeoptcenhvc.com/",
-                    "https://ko-fi.com/ghostman77506":       "https://ko-fi.com/ghostman77506",
-                }
-
-                # Split the banner around each URL and insert segments
-                remaining = banner
-                for url_text, url_href in _url_map.items():
-                    before, sep, remaining = remaining.partition(url_text)
-                    if sep:  # url was found
-                        ch.insert("end", before, "codeblock")
-                        tag_name = f"banner_link_{url_text.replace('/', '_').replace(':', '')}"
-                        ch.insert("end", url_text, ("codeblock", tag_name))
-                        # Configure the link tag: cyan + underline
-                        ch.tag_config(
-                            tag_name,
-                            foreground="#00CFFF",
-                            underline=True,
-                        )
-                        # Hover → gold; leave → back to cyan; click → open browser
-                        _url_captured = url_href  # closure-safe capture
-                        _raw_ch = getattr(ch, '_textbox', ch)  # bypass CTk wrapper
-                        def _on_enter(e, _t=tag_name, _w=_raw_ch):
-                            ch.tag_config(_t, foreground="#FFD700")
-                            try: _w.config(cursor="hand2")
-                            except Exception: pass
-                        def _on_leave(e, _t=tag_name, _w=_raw_ch):
-                            ch.tag_config(_t, foreground="#00CFFF")
-                            try: _w.config(cursor="")
-                            except Exception: pass
-                        def _on_click(e, _u=_url_captured):
-                            _wb.open(_u)
-                        ch.tag_bind(tag_name, "<Enter>",   _on_enter)
-                        ch.tag_bind(tag_name, "<Leave>",   _on_leave)
-                        ch.tag_bind(tag_name, "<Button-1>", _on_click)
-                    else:
-                        # URL not in remaining — put it back untouched
-                        remaining = url_text + remaining
-
-                # Insert whatever is left after the last URL
-                if remaining:
-                    ch.insert("end", remaining, "codeblock")
-
+                ch.insert("end", dragon, "codeblock")
                 ch.insert("end", "\n")
                 ch.see("end")
         except Exception:
             try:
-                app._append_conversation("system", banner)
+                app._append_conversation("system", dragon)
             except Exception:
                 pass
 

@@ -42,9 +42,17 @@ const App = {
         const openModalBtn = document.getElementById('open-analyze-modal-btn');
         const displayBtn = document.getElementById('display-analysis-btn');
         
-        // Open Analyze Modal
+        // Open Analyze Modal (from journal section button)
         if (openModalBtn) {
             openModalBtn.addEventListener('click', () => {
+                this.showAnalysisDateSelectionModal();
+            });
+        }
+        
+        // Open Analyze Modal (from action bar button)
+        const analyzeBarBtn = document.getElementById('analyze-bar-btn');
+        if (analyzeBarBtn) {
+            analyzeBarBtn.addEventListener('click', () => {
                 this.showAnalysisDateSelectionModal();
             });
         }
