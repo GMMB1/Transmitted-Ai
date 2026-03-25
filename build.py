@@ -1,5 +1,5 @@
 """
-build.py — Build Rona_v9_4.py into a Windows .exe using PyInstaller.
+build.py — Build Rona_v9_6.py into a Windows .exe using PyInstaller.
 
 Usage:
     python build.py              # normal build
@@ -17,7 +17,7 @@ from pathlib import Path
 # Paths (all resolved relative to this script so it works on any machine)
 # ─────────────────────────────────────────────────────────────────────────────
 HERE     = Path(__file__).resolve().parent
-SCRIPT   = HERE / "Rona_v9_4.py"
+SCRIPT   = HERE / "Rona_v9_6.py"
 ICON     = HERE / "rona_icon.ico"
 DIST_DIR = HERE / "dist"
 BUILD_DIR = HERE / "build"
@@ -34,7 +34,7 @@ datas = [
     (str(HERE / "config.py"),            "."),
     (str(HERE / "rtl_text.py"),          "."),
     (str(HERE / "ui_enhancements.py"),   "."),
-    (str(HERE / "config.example.json"),  "."),
+    (str(HERE / "config.json"),          "."),
     (str(HERE / "rona_icon.ico"),        "."),
     (str(HERE / "rona_avatar.png"),      "."),
 ]
