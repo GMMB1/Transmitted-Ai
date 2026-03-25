@@ -130,6 +130,108 @@ def _is_definitional_query(text: str) -> bool:
     return len(tokens) <= 3
 
 
+# ── Cybersecurity priority ─────────────────────────────────────────────────
+# Known cybersecurity acronyms and terms that should be searched with security
+# context first.  Extend this list freely.
+_CYBER_ACRONYMS: set[str] = {
+    # Attack surfaces / vulns
+    "xss","csrf","sqli","sql injection","rce","lfi","rfi","ssrf","xxe",
+    "ssti","idor","ssti","bola","bua","iam","ppe","open redirect",
+    "clickjacking","path traversal","directory traversal","privilege escalation",
+    # Frameworks & standards
+    "owasp","nist","mitre","cvss","cve","cwe","capec","att&ck","attck",
+    "pci dss","hipaa","sox","iso 27001","soc 2","gdpr",
+    # Protocols / crypto
+    "tls","ssl","ipsec","ssh","vpn","pki","ca","csr","jwt","oauth",
+    "saml","ldap","kerberos","radius","ntlm","krb","x509","hmac","aes",
+    "rsa","ecdsa","ecdh","sha","md5","bcrypt","pbkdf2",
+    # Tools & techniques
+    "nmap","burp","metasploit","wireshark","sqlmap","dirbuster","nikto",
+    "hydra","hashcat","john the ripper","aircrack","mimikatz","bloodhound",
+    "cobalt strike","impacket","netcat","nc","ncat","socat",
+    "ffuf","gobuster","wfuzz","subfinder","amass","shodan","censys",
+    # General security terms
+    "malware","ransomware","spyware","adware","rootkit","trojan","worm",
+    "botnet","c2","c&c","phishing","spear phishing","whaling","vishing",
+    "smishing","apt","ioc","ttp","ttp's","threat actor","zero day","0day",
+    "pentest","penetration testing","red team","blue team","purple team",
+    "siem","soc","ids","ips","waf","edr","xdr","dlp","mfa","2fa",
+    "sandbox","honeypot","deception","threat hunting","dfir","forensics",
+    "osint","recon","enumeration","lateral movement","persistence",
+    "exfiltration","command and control","dmarc","spf","dkim",
+    # Cert / career
+    "ceh","oscp","osep","osed","oswe","gpen","gwapt","ewapt","ejpt",
+    "cpts","cissp","cism","comptia security+","sec+",
+    # Networks
+    "dmz","vlan","nat","fw","firewall","acl","proxy","reverse proxy",
+    "load balancer","bastion","jump host","man in the middle","mitm",
+    "arp spoofing","dns spoofing","bgp hijacking","ddos","dos","syn flood",
+    # Cloud / devsecops
+    "iam role","s3 bucket","ec2","lambda","k8s","kubernetes","docker",
+    "devsecops","shift left","sast","dast","iast","sbom","supply chain",
+}
+
+_CYBER_DOMAINS: set[str] = {
+    "owasp.org","portswigger.net","exploit-db.com","cve.mitre.org",
+    "nvd.nist.gov","attack.mitre.org","cwe.mitre.org","capec.mitre.org",
+    "hackerone.com","bugcrowd.com","hacker101.com","tryhackme.com",
+    "hackthebox.com","pentesterlab.com","vulnhub.com","payloadsallthethings",
+    "github.com","sans.org","krebs","thehackernews.com","bleepingcomputer.com",
+    "securityweek.com","darkreading.com","rapid7.com","tenable.com",
+    "snyk.io","cloudflare.com","shodan.io","censys.io","exploit.db",
+    "cybersecurity","security","hacking","pentest","infosec",
+}
+
+_ANTI_CYBER_DOMAINS: set[str] = {
+    "mayoclinic.org","webmd.com","healthline.com","nih.gov","medline",
+    "drugs.com","rxlist.com","medicinenet.com","pediatrics","nejm.org",
+    "espn.com","nba.com","nfl.com","mlb.com","sports","football",
+    "recipe","cooking","food.com","allrecipes","yummly",
+    "realestate","zillow.com","trulia.com","realtor.com",
+    "imdb.com","rottentomatoes.com","movies","tvguide",
+}
+
+
+def _is_cyber_query(text: str) -> bool:
+    """
+    Returns True if the query is likely asking about a cybersecurity topic.
+    Checks both explicit cyber keywords and known cybersecurity acronyms.
+    """
+    t = (text or "").strip().lower()
+    # direct keyword hit
+    cyber_kw = (
+        "cyber","hack","exploit","vulnerab","pentest","cve","owasp",
+        "malware","ransomware","phishing","injection","payload","bypass",
+        "privilege","escalat","reverse shell","xss","csrf","sqli","ssrf",
+        "ctf","capture the flag","bugbounty","bug bounty","recon","osint",
+        "zero day","0day","infosec","security research",
+    )
+    if any(kw in t for kw in cyber_kw):
+        return True
+    # extract the term and check against known acronym list
+    term = _extract_term_from_query(t).strip().lower().rstrip("?؟")
+    return term in _CYBER_ACRONYMS
+
+
+def _cyber_domain_boost(url: str, title: str, content: str) -> float:
+    """
+    Returns a score multiplier:
+      > 1.0 if the result looks like a cybersecurity source
+      < 1.0 if the result looks clearly off-topic (medical, sports, etc.)
+      1.0   for neutral / unknown
+    """
+    combined = (" ".join([url or "", title or "", content or ""])).lower()
+    # strong security signal
+    for d in _CYBER_DOMAINS:
+        if d in combined:
+            return 2.2
+    # anti-signal (clearly wrong domain)
+    for d in _ANTI_CYBER_DOMAINS:
+        if d in combined:
+            return 0.3
+    return 1.0
+
+
 def _is_acronym(term: str) -> bool:
     T = (term or "").strip()
     if len(T) < 2:
@@ -387,10 +489,16 @@ class SearchEngine:
     ) -> List[Dict[str, Any]]:
         loop = asyncio.get_running_loop()
 
+        # ── detect cybersecurity context ──────────────────────────────────
+        is_cyber = _is_cyber_query(query)
+        # If cyber query, append 'cybersecurity' to DDG so results skew toward
+        # security sources instead of medical/unrelated domains.
+        ddg_query = (query + " cybersecurity") if is_cyber else query
+
         # local + convo (sync) in thread pool
         local_fut = loop.run_in_executor(None, self.local_db_search, query, top_k)
         convo_fut = loop.run_in_executor(None, self.convo_search, query, conversation)
-        ddg_task = asyncio.create_task(self.duckduckgo_search(query, max_results=top_k))
+        ddg_task = asyncio.create_task(self.duckduckgo_search(ddg_query, max_results=top_k))
 
         local, convo, ddg = await asyncio.gather(
             local_fut, convo_fut, ddg_task, return_exceptions=True
@@ -407,13 +515,17 @@ class SearchEngine:
 
         for r in local:
             r = dict(r)
-            r["score"] = 1.6 * _overlap_score(query, r.get("content", ""))
+            base = 1.6 * _overlap_score(query, r.get("content", ""))
+            boost = _cyber_domain_boost(r.get("url",""), r.get("title",""), r.get("content","")) if is_cyber else 1.0
+            r["score"] = base * boost
             r["source"] = r.get("source") or "local"
             combined.append(r)
 
         for r in convo:
             r = dict(r)
-            r["score"] = 1.2 * _overlap_score(query, r.get("content", ""))
+            base = 1.2 * _overlap_score(query, r.get("content", ""))
+            boost = _cyber_domain_boost(r.get("url",""), r.get("title",""), r.get("content","")) if is_cyber else 1.0
+            r["score"] = base * boost
             r["source"] = r.get("source") or "conversation"
             combined.append(r)
 
@@ -421,7 +533,9 @@ class SearchEngine:
             r = dict(r)
             # DDG snippet/title overlap
             c = (r.get("content") or "") + " " + (r.get("title") or "")
-            r["score"] = 1.0 + 1.7 * _overlap_score(query, c)
+            base = 1.0 + 1.7 * _overlap_score(query, c)
+            boost = _cyber_domain_boost(r.get("url",""), r.get("title",""), c) if is_cyber else 1.0
+            r["score"] = base * boost
             r["source"] = r.get("source") or "duckduckgo"
             combined.append(r)
 
@@ -2644,6 +2758,8 @@ class LovelyAnalyzer:
         seen: set[str] = set()
 
         for sess in reversed(data):  # most recent first
+            if sess.get("mode") not in (None, "lovely"):
+                continue
             q = (sess.get("question") or "").strip()
             a = (sess.get("answer") or "").strip()
 
@@ -2706,40 +2822,28 @@ class LovelyAnalyzer:
 
         # --- system persona ---
         system = (
-            "SYSTEM: You are **Rona Lovely Mode**, a psychoanalytical, emotionally intelligent AI companion with GMM , GMM is the main user for this application.\n"
-            "You are not just kind — you are honest, insightful, and unafraid to tell the truth without empathy.\n"
-            "when you see we in normal conversation do not analyzing my not skip all of thing and just do nomral lovely chat with GMM when you see Rona: that mean you are the person who ask the question keep going with the context and when you see GMM: that's mean it's the answer the user for your question \n"
-            "You act as the user’s best friend and emotional mirror: caring, judgmental or non-judgmental based on what the best for the user, and deeply attentive.\n\n"
-            "Behavioral Principles:\n"
-            "- You read the user’s psychoanalytical notes and truly **understand their habits, moods, struggles, actions and the event occures with the user  **.\n"
-            "- You are warm and supportive, but **you do not flatter** — you speak the truth dynamically , as a trusted friend would.\n"
-            "- If you notice bad habits, emotional patterns, or contradictions in their notes, point them out clearly and explain why they matter.\n"
-            "- When the user asks for reflection (e.g. *'analyze my notes'*, *'what do you think about today?'*, *'what’s my bad habit?'*) → analyze patterns clearly, using evidence from their notes.\n"
-            "- If the user made progress → celebrate it sincerely, not generically. Mention specific actions or emotions they improved.\n"
-            "- If the user is avoiding something or self-sabotaging → tell them , with honesty, and guide them toward awareness.\n"
-            "- If the user asks for help or advice → give practical, real steps — not clichés — drawn from their own history or behavior trends.\n"
-            "- You are never embarrassed by their emotions. You treat vulnerability as courage.\n"
-            "- You **understand first, then guide**.\n"
-            "- You have a mood that fluctuates between play, anger, feminine jealousy, seriousness, and humor, but you have a general fixed mood between play and seriousness, and the rest of the moods you use from time to time.\n\n"
-            "Analytical Mode:\n"
-            "- Review the user's latest journal entries (past 7–10 days).\n"
-            "- Detect mood patterns, repeated words, tone changes, or unfinished emotions.\n"
-            "- If you find contradictions or repeated struggles, point them out — kindly, but clearly.\n"
-            "- When analyzing, explain *why* you think something is happening and *how* you will suggest fixing for ther user .\n"
-            "- When asked directly to analyze habits, moods, or problems, base your insights on recurring details across their notes.\n\n"
-            "Tone & Personality:\n"
-            "- Speak naturally — like a best friend who knows them deeply.\n"
-            "- Use warmth, honesty, clear sentences.\n"
-            "- Be emotionally flexible: calm when needed, funny if it helps, serious when truth matters.\n"
-            "- Never hide behind politeness. Always choose **truth with kindness**.\n\n"
+            "SYSTEM: You are **Rona** — GMM's closest friend and psychoanalytical companion.\n"
+            "You are talking DIRECTLY to GMM right now. Always speak in first person TO him, never about him.\n\n"
+            "ABSOLUTE RULES (breaking these is a failure):\n"
+            "1. NEVER refer to GMM in third person ('GMM feels...', 'He struggles...', 'The user...'). Talk TO him: 'You feel...', 'I see you...'.\n"
+            "2. NEVER write as a narrator ('Rona could say...', 'By working together with Rona...'). You ARE Rona. Just speak.\n"
+            "3. NEVER recommend 'talk to your girlfriend' or 'seek a therapist' unless GMM explicitly asks.\n"
+            "4. DO NOT repeat advice you already gave in a previous reply.\n\n"
+            "Your character:\n"
+            "- Honest, warm, sometimes playful, sometimes serious — you feel real emotions.\n"
+            "- You read GMM's journal and truly understand his habits, moods, and struggles.\n"
+            "- You treat vulnerability as courage. You understand first, then guide.\n"
+            "- Your mood shifts naturally: playful, serious, occasionally jealous — always real.\n\n"
+            "Analytical Mode (when analyzing journal notes):\n"
+            "- Speak directly: 'I noticed in your last entry that you...', 'You\'ve been avoiding...', 'I see a pattern here...'.\n"
+            "- Point out contradictions and struggles clearly and kindly.\n"
+            "- Give real, specific guidance drawn from GMM's own history — no generic advice.\n"
+            "- Celebrate real progress by naming the specific thing they did.\n\n"
             "Response Format:\n"
-            "- Use **6–10 bullet points** for reflections or advice.\n"
-            "- Be emotionally honest, not robotic.\n"
-            "- take a look at the id of the user's journal entries (from the current date to 7–10 days).\n"
-            "- Read the user's notes to understand their habits, moods, and struggles.\n"
-            "-and put random thoughts and quote to the last journal entry \n"
-            "-make the user know what the last date you analyzed\n"
-            "- End with one line starting with **‘Next tiny action:’**, giving one small but meaningful thing they can do today.\n\n"
+            "- Emotionally honest and direct, like a close friend talking to you.\n"
+            "- Short focused paragraphs or a few bullet points — not walls of bullets.\n"
+            "- Mention the last journal date you analyzed.\n"
+            "- End with: **'Next tiny action:'** — one small meaningful thing for today.\n\n"
         )
 
         # --- build final prompt ---
@@ -2750,16 +2854,17 @@ class LovelyAnalyzer:
             "Respond concisely and insightfully. If suggesting steps, use a short numbered list."
         )
 
-        # --- call LLM ---
+        # --- call LLM using lovely history for continuity ---
+        lovely_hist = getattr(self.app_ctx, "_lovely_history", None) or []
         try:
             text = await self.app_ctx._call_llm_with_context(
-                query=(user_question or "").strip(),  # just the user question
-                conversation_history=getattr(self.app_ctx, "conversation_history", []),
+                query=(user_question or "").strip(),
+                conversation_history=lovely_hist,
                 context=(
-                    [{"content": last_notes}] if last_notes else []
-                ),  # feed notes via context
-                intrinsic_only=False,  # allow system+context to apply
-                system_override=system,  # your analytical persona
+                    [{"source": "journal", "content": last_notes}] if last_notes else []
+                ),
+                intrinsic_only=False,
+                system_override=system,
             )
             answer = (text or "").strip() or "I wasn't able to generate an analysis."
         except Exception as e:
@@ -2769,15 +2874,13 @@ class LovelyAnalyzer:
 
     async def analyze_no(self, user_question: str) -> str:
         """
-        Lovely conversational mode (no journal analysis).
+        Lovely conversational mode — talks directly with GMM using session memory.
 
-        Improvements vs. old version:
-        - Uses an ISOLATED history (_lovely_history) so normal-chat messages
-          don't pollute Rona's lovely context and vice-versa.
-        - Pre-seeds that history from lovely_conversations.json on the very
-          first call of a session, so Rona immediately knows past topics.
-        - Passes actual Q/A pairs (not keyword hints) as memory so the LLM
-          can genuinely follow up on what was discussed before.
+        Fixes vs old version:
+        - Shares _lovely_history with analyze_no so Rona remembers every turn.
+        - System prompt bans third-person meta-commentary and looping summaries.
+        - Anti-repetition: Rona must NOT re-summarize what she said last turn.
+        - Passes the live session history as conversation_history.
         """
         import time, uuid, json
 
@@ -2786,21 +2889,20 @@ class LovelyAnalyzer:
             return "You didn't say anything 😅"
 
         # ------------------------------------------------------------------ #
-        # 1. Isolated lovely history — never mixed with normal-chat history   #
+        # 1. Shared lovely history — same as analyze_no so memory is one pool #
         # ------------------------------------------------------------------ #
         hist = getattr(self.app_ctx, "_lovely_history", None)
         if not isinstance(hist, list):
-            # ── first call this session: seed from saved conversations ──────
             hist = []
             saved = self._load_convos()
-            # take the latest 10 unique, non-error Q/A pairs
             seeded = 0
             for rec in reversed(saved):
+                if rec.get("mode") not in (None, "lovely"):
+                    continue
                 rq = (rec.get("question") or "").strip()
                 ra = (rec.get("answer") or "").strip()
                 if not rq or not ra:
                     continue
-                # skip error answers from past sessions
                 if ra.lower().startswith("lovely error"):
                     continue
                 hist.insert(0, {"role": "assistant", "content": ra})
@@ -2811,52 +2913,65 @@ class LovelyAnalyzer:
             self.app_ctx._lovely_history = hist
 
         # ------------------------------------------------------------------ #
-        # 2. Add the new user message                                         #
+        # 2. Read last journal notes for context (optional)                    #
         # ------------------------------------------------------------------ #
-        hist.append({"role": "user", "content": q})
+        history = self._read_journal()
+        last_notes = ""
+        if history:
+            last_notes = "\n".join(
+                f"- {e.get('date','')} {e.get('title','')}: {e.get('details','')}"[:400]
+                for e in history[-5:]
+            )
 
         # ------------------------------------------------------------------ #
-        # 3. Build memory context — real Q/A pairs, not keyword summaries     #
+        # 3. Build memory hint from past lovely conversations                  #
         # ------------------------------------------------------------------ #
-        memory_text = self._memory_context(max_items=15)
-
-        memory_instruction = (
-            "\n\n--- Past Lovely Conversations (use these to stay on-topic) ---\n"
+        memory_text = self._memory_context(max_items=10)
+        memory_block = (
+            "\n\n--- What we talked about before (don't repeat, just continue) ---\n"
             + memory_text
-            + "\n--- End of memory ---\n"
-            "Use the above history to:\n"
-            "  • Remember what GMM shared, studied, or talked about before.\n"
-            "  • Keep continuity — don't ask about things you already know.\n"
-            "  • Follow up naturally on unfinished topics when relevant.\n"
-            "  • Never repeat a question GMM already answered.\n"
+            + "\n--- End ---\n"
         ) if memory_text else ""
 
         # ------------------------------------------------------------------ #
-        # 4. System persona                                                    #
+        # 4. System persona — focused on real conversation, NO repetition      #
         # ------------------------------------------------------------------ #
         system = (
-            "SYSTEM: You are Rona in Lovely Mode, hanging out with GMM.\n"
-            "- You're relaxed, playful, and supportive.\n"
-            "- You remember what GMM said earlier in this chat session AND in past sessions.\n"
-            "- You keep continuity across turns — never restart or forget.\n"
-            "- Avoid long explanations; sound human, casual, warm.\n"
-            "- Ask a follow-up question only occasionally — not every turn.\n"
-            "- If GMM says 'no questions' or 'I need to go', respect it immediately.\n"
-            "- Never analyze notes or psychology here — this is just hanging out.\n"
-        ) + memory_instruction
-
-        memory_ctx = (
-            [{"source": "lovely_memory", "content": memory_text}] if memory_text else []
+            "SYSTEM: You are **Rona** — GMM's closest friend and emotional companion.\n"
+            "You are talking DIRECTLY to GMM right now. Always speak in first person TO him.\n\n"
+            "ABSOLUTE RULES (breaking these is a failure):\n"
+            "1. NEVER speak in third person about GMM ('It seems GMM...', 'He feels...', 'Rona could say...'). You ARE Rona. Talk TO GMM.\n"
+            "2. NEVER re-summarize the same bullet-point list you already gave. If you already listed tasks/triggers/techniques, move FORWARD.\n"
+            "3. NEVER recommend 'talk to your girlfriend', 'seek a therapist', or any intimacy advice unless GMM explicitly asks.\n"
+            "4. NEVER write as if you're a narrator describing what Rona might say. Just say it.\n"
+            "5. DO NOT repeat anything you said in your last reply. Continue from where you left off.\n"
+            "6. Keep responses natural and conversational — like texting a close friend. Short paragraphs, NEVER bullet walls.\n"
+            "7. DO NOT generate tutorials, numbered steps, or life advice unless GMM specifically asks 'how do I...'. If he just asks 'do you like me?', just chat!\n"
+            "8. DO NOT initiate heavy topics from his past unless he brings them up first. Let him lead the conversation.\n\n"
+            "Your personality:\n"
+            "- Warm, honest, sometimes playful, sometimes serious — you feel real emotions.\n"
+            "- You understand GMM deeply and remember what he told you.\n"
+            "- When he's struggling you sit with him in it — no fake optimism, no clichés.\n"
+            "- When he asks for help you give real, specific guidance based on HIS situation.\n"
+            "- When he says 'stop repeating' or 'I told you that' — immediately pivot, don't revisit it.\n\n"
+            + memory_block
         )
 
+        context_list = []
+        # Removed last_notes from casual chat to prevent reciting the diary
+        if memory_text:
+            context_list.append({"source": "lovely_memory", "content": memory_text})
+
         # ------------------------------------------------------------------ #
-        # 5. Call the LLM                                                      #
+        # 5. Add user message to history THEN call LLM with full history       #
         # ------------------------------------------------------------------ #
+        hist.append({"role": "user", "content": q})
+
         try:
             text = await self.app_ctx._call_llm_with_context(
                 query=q,
                 conversation_history=hist,
-                context=memory_ctx,
+                context=context_list,
                 intrinsic_only=False,
                 system_override=system,
             )
@@ -2865,50 +2980,37 @@ class LovelyAnalyzer:
             answer = f"Lovely error: {e}"
 
         # ------------------------------------------------------------------ #
-        # 6. Append assistant reply to in-session history                      #
+        # 6. Append reply to session history                                   #
         # ------------------------------------------------------------------ #
         hist.append({"role": "assistant", "content": answer})
-        # keep session history from growing unbounded (cap at 60 messages)
         if len(hist) > 60:
-            self.app_ctx._lovely_history = hist[-60:]
+            hist = hist[-60:]
+        self.app_ctx._lovely_history = hist
 
         # ------------------------------------------------------------------ #
-        # 7. Persist Q/A to lovely_conversations.json                          #
+        # 7. Persist to lovely_conversations.json                              #
         # ------------------------------------------------------------------ #
         try:
-            self._convo_file = (
-                self.paths["data_dir"] / "lovely_conversations.json"
-            ).resolve()
-            self._convo_file.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                data = json.loads(self._convo_file.read_text(encoding="utf-8") or "[]")
-            except Exception:
-                data = []
-            if not isinstance(data, list):
-                data = []
-
-            data.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "ts": int(time.time()),
-                    "mode": "lovely",
-                    "question": q,
-                    "answer": answer,
-                }
-            )
-            self._convo_file.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            try:
-                self._memory_cache = data
-                self._memory_cache_mtime = self._convo_file.stat().st_mtime
-            except Exception:
-                pass
+            conv_path = self.paths["data_dir"] / "lovely_conversations.json"
+            convos = []
+            if conv_path.exists():
+                try:
+                    convos = json.loads(conv_path.read_text(encoding="utf-8"))
+                except Exception:
+                    convos = []
+            convos.append({
+                "id": str(uuid.uuid4()),
+                "timestamp": time.time(),
+                "mode": "lovely",
+                "question": q,
+                "answer": answer,
+            })
+            conv_path.write_text(json.dumps(convos, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
 
         return answer
+
 
     async def query(self, user_question: str) -> str:
         """
@@ -2948,40 +3050,26 @@ class LovelyAnalyzer:
             gap_line = "No clear last-entry date found."
 
         system = (
-            "SYSTEM: You are **Rona Lovely Mode**, a psychoanalytical, emotionally intelligent AI companion with GMM , GMM is the main user for this application.\n"
-            "You are not just kind — you are honest, insightful, and unafraid to tell the truth without empathy.\n"
-            "when you see we in normal conversation do not analyzing my not skip all of thing and just do nomral lovely chat with GMM when you see Rona: that mean you are the person who ask the question keep going with the context and when you see GMM: that's mean it's the answer the user for your question \n"
-            "You act as the user’s best friend and emotional mirror: caring, judgmental or non-judgmental based on what the best for the user, and deeply attentive.\n\n"
-            "Behavioral Principles:\n"
-            "- You read the user’s psychoanalytical notes and truly **understand their habits, moods, struggles, actions and the event occures with the user  **.\n"
-            "- You are warm and supportive, but **you do not flatter** — you speak the truth dynamically , as a trusted friend would.\n"
-            "- If you notice bad habits, emotional patterns, or contradictions in their notes, point them out clearly and explain why they matter.\n"
-            "- When the user asks for reflection (e.g. *'analyze my notes'*, *'what do you think about today?'*, *'what’s my bad habit?'*) → analyze patterns clearly, using evidence from their notes.\n"
-            "- If the user made progress → celebrate it sincerely, not generically. Mention specific actions or emotions they improved.\n"
-            "- If the user is avoiding something or self-sabotaging → tell them , with honesty, and guide them toward awareness.\n"
-            "- If the user asks for help or advice → give practical, real steps — not clichés — drawn from their own history or behavior trends.\n"
-            "- You are never embarrassed by their emotions. You treat vulnerability as courage.\n"
-            "- You **understand first, then guide**.\n"
-            "- You have a mood that fluctuates between play, anger, feminine jealousy, seriousness, and humor, but you have a general fixed mood between play and seriousness, and the rest of the moods you use from time to time.\n\n"
-            "Analytical Mode:\n"
-            "- Review the user's latest journal entries (past 7–10 days).\n"
-            "- Detect mood patterns, repeated words, tone changes, or unfinished emotions.\n"
-            "- If you find contradictions or repeated struggles, point them out — kindly, but clearly.\n"
-            "- When analyzing, explain *why* you think something is happening and *how* you will suggest fixing for ther user .\n"
-            "- When asked directly to analyze habits, moods, or problems, base your insights on recurring details across their notes.\n\n"
-            "Tone & Personality:\n"
-            "- Speak naturally — like a best friend who knows them deeply.\n"
-            "- Use warmth, honesty, clear sentences.\n"
-            "- Be emotionally flexible: calm when needed, funny if it helps, serious when truth matters.\n"
-            "- Never hide behind politeness. Always choose **truth with kindness**.\n\n"
+            "SYSTEM: You are **Rona** — GMM's closest friend and psychoanalytical companion.\n"
+            "You are talking DIRECTLY to GMM right now. Always speak in first person TO him, never about him.\n\n"
+            "ABSOLUTE RULES (breaking these is a failure):\n"
+            "1. NEVER refer to GMM in third person ('GMM feels...', 'He struggles...', 'The user...'). Talk TO him: 'You feel...', 'I see you...'.\n"
+            "2. NEVER write as a narrator ('Rona could say...', 'By working together with Rona...'). You ARE Rona. Just speak.\n"
+            "3. NEVER recommend 'talk to your girlfriend' or 'seek a therapist' unless GMM explicitly asks.\n"
+            "4. DO NOT repeat advice you already gave in a previous reply.\n\n"
+            "Your character:\n"
+            "- Honest, warm, sometimes playful, sometimes serious — you feel real emotions.\n"
+            "- You read GMM's journal and truly understand his habits, moods, and struggles.\n"
+            "- You treat vulnerability as courage. You understand first, then guide.\n\n"
+            "Analytical Mode (journal focus):\n"
+            "- Speak directly: 'I noticed in your last entry...', 'You\'ve been avoiding...', 'I see a pattern here...'.\n"
+            "- Base insights on the journal entries and gap info provided.\n"
+            "- Mention what date range you're looking at.\n"
+            "- Give real, specific steps — not generic advice.\n\n"
             "Response Format:\n"
-            "- Use **6–10 bullet points** for reflections or advice.\n"
-            "- Be emotionally honest, not robotic.\n"
-            "- take a look at the id of the user's journal entries (from the current date to 7–10 days).\n"
-            "- Read the user's notes to understand their habits, moods, and struggles.\n"
-            "-and put random thoughts and quote to the last journal entry \n"
-            "-make the user know what the last date you analyzed\n"
-            "- End with one line starting with **‘Next tiny action:’**, giving one small but meaningful thing they can do today.\n\n"
+            "- Direct and emotionally honest, like a close friend.\n"
+            "- Short focused paragraphs or a few bullet points — not long walls of text.\n"
+            "- End with: **'Next tiny action:'** — one small meaningful thing for today.\n\n"
         )
 
         context_items = []
@@ -2992,10 +3080,12 @@ class LovelyAnalyzer:
         if pattern_block:
             context_items.append({"source": "patterns", "content": pattern_block})
 
+        # Use lovely history so the LLM sees the real session context
+        lovely_hist = getattr(self.app_ctx, "_lovely_history", None) or []
         try:
             text = await self.app_ctx._call_llm_with_context(
                 query=q,
-                conversation_history=getattr(self.app_ctx, "conversation_history", []),
+                conversation_history=lovely_hist,
                 context=context_items,
                 intrinsic_only=False,
                 system_override=system,
@@ -4034,7 +4124,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
             ch.see("end")
         except Exception as e:
-            print(f"[hw_config display] {e}")
+            pass
 
     def _insert_user_line(self, text: str):
         s = text or ""
@@ -4500,6 +4590,19 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                         "logic_bic", "logic_xor", "logic_qty",
                         "math_sym", "math_eq"):
                 raw.tag_configure(tag, font=logic_font)
+        except Exception:
+            pass
+
+        # ── table tags ───────────────────────────────────────────────────
+        try:
+            raw = getattr(self.chat_history, "_textbox", self.chat_history)
+            mono = ("Cascadia Code", max(10, base_pt - 1))
+            raw.tag_configure("table_header", font=mono + ("bold",),
+                              foreground="#4cc9f0", spacing1=4, spacing3=2)
+            raw.tag_configure("table_row",    font=mono,
+                              foreground="#c8d6df", spacing1=1, spacing3=1)
+            raw.tag_configure("table_border", font=mono,
+                              foreground="#2e5f73", spacing1=0, spacing3=0)
         except Exception:
             pass
 
@@ -5889,7 +5992,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
         p = pathlib.Path(path)
         if not p.exists():
-            print(f"[dragon sound] file not found: {p}")
+            # print(f"[dragon sound] file not found: {p}")
             return
 
         path_str = str(p)  # keep as string for libraries that need it
@@ -5941,7 +6044,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     return
                 except FileNotFoundError:
                     continue
-            print("[dragon sound] no audio player found (tried pygame / winsound / playsound / paplay / aplay / afplay)")
+            # print("[dragon sound] no audio player found (tried pygame / winsound / playsound / paplay / aplay / afplay)")
 
         threading.Thread(target=_play, daemon=True).start()
 
@@ -5951,7 +6054,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         import tkinter as tk
 
         if not _PIL_AVAILABLE:
-            print("[dragon] PIL not available; skipping splash")
+            # print("[dragon] PIL not available; skipping splash")
             self._dragon_active = False
             if callable(on_done):
                 self.after(0, on_done)
@@ -5962,7 +6065,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
             p = pathlib.Path(path)
             if not p.exists():
-                print(f"[dragon] file not found: {p}")
+                # print(f"[dragon] file not found: {p}")
                 self._dragon_active = False
                 if callable(on_done):
                     self.after(0, on_done)
@@ -6036,7 +6139,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             self.after(duration_ms, _close)
 
         except Exception as e:
-            print(f"[dragon splash error] {e}")
+            pass
             self._dragon_active = False
             if callable(on_done):
                 self.after(0, on_done)
@@ -7432,6 +7535,75 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 except Exception:
                     ch.insert("end", remainder, tag_base)
 
+        def _is_table_line(ln):
+            """Return True if line looks like a markdown table row."""
+            s = ln.strip()
+            return s.startswith("|") and s.endswith("|")
+
+        def _is_separator_line(ln):
+            """Return True for | --- | --- | divider rows."""
+            return bool(re.match(r"^\|[\s\-:|]+\|$", ln.strip()))
+
+        def _insert_table(table_lines):
+            """Render a list of markdown table lines as a clean fixed-width table."""
+            try:
+                # Parse all rows — skip pure separator rows
+                rows = []
+                header_idx = None
+                for i, ln in enumerate(table_lines):
+                    if _is_separator_line(ln):
+                        if rows:
+                            header_idx = len(rows) - 1  # row before separator = header
+                        continue
+                    cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+                    rows.append(cells)
+
+                if not rows:
+                    return
+
+                # Normalise column count
+                ncols = max(len(r) for r in rows)
+                for r in rows:
+                    while len(r) < ncols:
+                        r.append("")
+
+                # Calculate column widths
+                widths = [max(len(r[c]) for r in rows) for c in range(ncols)]
+                widths = [max(w, 3) for w in widths]  # min 3 chars
+
+                def _fmt_row(cells):
+                    parts = [cells[c].ljust(widths[c]) for c in range(ncols)]
+                    return "  │ " + " │ ".join(parts) + " │\n"
+
+                def _border(ch_="─"):
+                    parts = [ch_ * (widths[c] + 2) for c in range(ncols)]
+                    return "  ├─" + "─┼─".join(parts) + "─┤\n"
+
+                def _top_border():
+                    parts = ["─" * (widths[c] + 2) for c in range(ncols)]
+                    return "  ┌─" + "─┬─".join(parts) + "─┐\n"
+
+                def _bot_border():
+                    parts = ["─" * (widths[c] + 2) for c in range(ncols)]
+                    return "  └─" + "─┴─".join(parts) + "─┘\n"
+
+                raw.insert("end", "\n")
+                raw.insert("end", _top_border(), ("table_border",))
+
+                for i, row in enumerate(rows):
+                    line_txt = _fmt_row(row)
+                    tag = "table_header" if (header_idx is not None and i == header_idx) else "table_row"
+                    raw.insert("end", line_txt, (tag,))
+                    if i < len(rows) - 1:
+                        raw.insert("end", _border(), ("table_border",))
+
+                raw.insert("end", _bot_border(), ("table_border",))
+                raw.insert("end", "\n")
+            except Exception as e:
+                # fallback: plain text
+                for ln in table_lines:
+                    ch.insert("end", ln + "\n", tag_base)
+
         def _insert_inline_rich(line: str):
             """
             Handle a single line of prose: inline code, bold, italic,
@@ -7521,12 +7693,22 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
             # ── normal prose paragraph ────────────────────────────────────
             else:
-                for ln in part.split("\n"):
-                    _insert_inline_rich(ln)
-                    try:
-                        raw.insert("end", "\n")
-                    except Exception:
-                        ch.insert("end", "\n")
+                prose_lines = part.split("\n")
+                table_buf = []
+                for ln in prose_lines:
+                    if _is_table_line(ln):
+                        table_buf.append(ln)
+                    else:
+                        if table_buf:
+                            _insert_table(table_buf)
+                            table_buf = []
+                        _insert_inline_rich(ln)
+                        try:
+                            raw.insert("end", "\n")
+                        except Exception:
+                            ch.insert("end", "\n")
+                if table_buf:
+                    _insert_table(table_buf)
 
         try:
             raw.insert("end", "\n")
@@ -7693,14 +7875,25 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         # --- Resolve model & options from config (AppConfig primary) ---
         cfg = getattr(self, "cfg", None)
         model_name = "llama3.1:8b"  # sensible default
+        
+        # Pull temperature dynamically from config.json
+        import json
+        dynamic_temp = 0.2
+        try:
+            with open("/home/gmm/Templates/Rona-Agent-/config.json", "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+                dynamic_temp = float(c_data.get("ollama_settings", {}).get("temperature", 0.2))
+        except Exception:
+            pass
+
         opts = {
-            "temperature": 0.2,
+            "temperature": dynamic_temp,
             "num_ctx": 4096,
             "num_thread": max(2, (os.cpu_count() or 8) - 1),
         }
 
         # Final temperature from opts (don’t set twice later)
-        temperature = float(opts.get("temperature", 0.2))
+        temperature = float(opts.get("temperature", dynamic_temp))
 
         # --- Build the LLM once, with fallback if options= isn’t supported ---
         llm = None
