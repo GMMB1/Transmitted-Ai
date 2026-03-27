@@ -15,7 +15,8 @@ env/
 data/
 chroma_db/
 *.sqlite3
-config.json
+# config.json removed from gitignore as it is required for the app to run
+
 analysis/
 
 # Media / Demo folders — large files, private
