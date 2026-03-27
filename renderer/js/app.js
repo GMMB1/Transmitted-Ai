@@ -19,6 +19,8 @@ const App = {
         Weekly.init();
         Monthly.init();
         Statistics.init();
+        if (typeof Habits !== 'undefined') Habits.init();
+        if (typeof Notes !== 'undefined') Notes.init();
 
         // Setup global UI
         this.setupSideMenu();
@@ -381,23 +383,32 @@ const App = {
      */
     setupNavigation() {
         const navBtns = document.querySelectorAll('.nav-btn[data-page]');
-        const mainContainer = document.querySelector('.container');
+        const mainContainer = document.querySelector('.container:not(.stats-container):not(.habits-container)');
         const statsPage = document.getElementById('statistics-page');
+        const habitsPage = document.getElementById('habits-page');
         const backBtn = document.getElementById('back-to-home');
 
         if (!navBtns.length) return;
 
         const showPage = (page) => {
+            // Hide all pages (using our existing container structure)
+            if (mainContainer) mainContainer.style.display = 'none';
+            if (statsPage) statsPage.classList.add('hidden');
+            if (habitsPage) habitsPage.classList.add('hidden');
+
+            // Show selected page
             if (page === 'statistics') {
-                if (mainContainer) mainContainer.style.display = 'none';
-                if (statsPage)     statsPage.classList.remove('hidden');
+                if (statsPage) statsPage.classList.remove('hidden');
+            } else if (page === 'habits') {
+                if (habitsPage) habitsPage.classList.remove('hidden');
             } else {
                 if (mainContainer) mainContainer.style.display = '';
-                if (statsPage)     statsPage.classList.add('hidden');
             }
-            // Update active state on nav buttons
+
+            // Update active nav button (checking id just like the prompt suggested, but keeping dataset compatibility)
             navBtns.forEach(b => {
-                b.classList.toggle('active', b.dataset.page === page);
+                b.classList.remove('active');
+                if (b.dataset.page === page) b.classList.add('active');
             });
             // Close the side menu after navigation
             const sideMenu = document.getElementById('side-menu');

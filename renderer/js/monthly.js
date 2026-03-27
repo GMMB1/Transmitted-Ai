@@ -24,7 +24,6 @@ const Monthly = {
      */
     setupListeners() {
         // Open/close monthly popup
-        document.getElementById('monthly-report-btn')?.addEventListener('click', () => this.openEditor());
         document.getElementById('close-monthly-popup')?.addEventListener('click', () => this.closeEditor());
 
         // Month selection

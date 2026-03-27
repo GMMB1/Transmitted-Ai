@@ -26,7 +26,8 @@
 
     <nav id="side-menu" class="side-menu">
         <button class="nav-btn active" data-page="home">🏠 Home</button>
-        <button class="nav-btn" data-page="statistics">📊 Statistics</button>
+        <button class="nav-btn" data-page="statistics" id="statistics-nav-btn">📊 Statistics</button>
+        <button class="nav-btn" data-page="habits" id="habits-nav-btn">🔥 <span>Streaks</span></button>
 
         <hr style="border: 1px solid var(--border-color); margin: 15px 0;">
 
@@ -62,7 +63,6 @@
                 </label>
                 <span id="privacy-status" style="font-size: 0.8rem; opacity: 0.7;">Hidden</span>
             </div>
-        </div>
         </div>
         <button id="export-backup-btn" class="nav-btn">💾 Export Backup</button>
         <button id="import-backup-btn" class="nav-btn">📂 Import Backup</button>
@@ -132,7 +132,7 @@
             <div class="action-bar-group">
                 <button id="weekly-report-btn" class="mini-btn">📅 Weekly</button>
                 <button id="analyze-bar-btn" class="mini-btn" style="background: linear-gradient(135deg, #a855f7, #6366f1);">🧠 Analyze</button>
-                <button id="monthly-report-btn" class="mini-btn">📆 Note</button>
+                <button type="button" id="general-note-btn" class="mini-btn">📝 Note</button>
             </div>
             <div class="action-bar-group">
                 <button id="show-weekly-list-btn" class="mini-btn">📋 W-History</button>
@@ -407,6 +407,42 @@
         <div id="monthly-reports-grid" class="reports-grid"></div>
     </div>
 
+    <!-- ==================== Generic Note Modal ==================== -->
+    <div id="general-note-modal" class="popup">
+        <div class="popup-header">
+            <h2>📝 Generic Note</h2>
+            <button type="button" id="close-general-note-btn" class="close-btn">×</button>
+        </div>
+        <div>
+            <label style="opacity: 0.8; margin-bottom: 5px; display: block;">Title</label>
+            <input type="text" id="general-note-title" placeholder="Optional title..." class="journal-input" style="width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-color);">
+            
+            <label style="opacity: 0.8; margin-top: 15px; display: block;">Date</label>
+            <input type="date" id="general-note-date" class="journal-input" style="width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-color);">
+
+            <label style="opacity: 0.8; margin-top: 15px; display: block;">Details</label>
+            <textarea id="general-note-content" class="journal-textarea" rows="8" placeholder="Start typing your note here..." style="width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-color); margin-bottom:15px;"></textarea>
+
+            <div style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="secondary-btn" id="list-general-notes-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-muted);">📁 View History</button>
+                <div style="flex-grow:1"></div>
+                <button type="button" id="save-general-note-btn" class="primary-btn">💾 Save Note</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Generic Notes List Popup ==================== -->
+    <div id="general-note-list-modal" class="weekly-list-popup">
+        <div class="list-header">
+            <h2>📁 Saved Notes</h2>
+            <div class="list-actions">
+                <button type="button" id="create-new-general-note-btn" class="primary-btn">➕ New Note</button>
+                <button type="button" id="close-general-note-list" class="secondary-btn">✖ Close</button>
+            </div>
+        </div>
+        <div id="general-notes-grid" class="reports-grid"></div>
+    </div>
+
     <!-- ==================== Statistics Page ==================== -->
     <div id="statistics-page" class="page hidden">
         <div class="container stats-container">
@@ -502,6 +538,20 @@
         </div>
     </div>
 
+    <!-- ==================== Habits Page ==================== -->
+    <div id="habits-page" class="page hidden">
+        <div class="container habits-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                <h1>🔥 Streak & Habits</h1>
+                <button type="button" id="add-habit-btn" class="primary-btn">➕ Add Habit</button>
+            </div>
+            
+            <div id="habits-board" class="habits-board">
+                <!-- Habit Cards go here dynamically -->
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Confirmation Modal ==================== -->
     <div id="confirm-modal" class="modal hidden">
         <div class="modal-content">
@@ -547,6 +597,8 @@
     <script src="/renderer/js/weekly.js"></script>
     <script src="/renderer/js/monthly.js"></script>
     <script src="/renderer/js/statistics.js"></script>
+    <script src="/renderer/js/habits.js"></script>
+    <script src="/renderer/js/notes.js"></script>
     <script src="/renderer/js/app.js"></script>
 </body>
 

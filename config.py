@@ -132,7 +132,7 @@ def _detect_tier() -> dict:
         temperature  = 0.35
 
     # ------- model choice (only switch if larger VRAM detected) -----------
-    model = "llama3.1:8b"          # safe default for all tiers
+    model = "llama3:8b-instruct-q4_K_M"          # optimized quantized default for RTX 4060
 
     gpu_opts: dict = {}
     if has_gpu:
@@ -168,7 +168,7 @@ def _detect_tier() -> dict:
 
 @dataclass
 class LLMConfig:
-    model:   str  = "llama3.1:8b"
+    model:   str  = "llama3:8b-instruct-q4_K_M"
     threads: int  = field(default_factory=_cpu_threads)
     use_gpu: bool = field(default_factory=_has_nvidia_smi)
     options: dict = field(default_factory=dict)
@@ -280,7 +280,7 @@ class AppConfig:
 
 @dataclass
 class AutoConfig:
-    model_name:  str   = "llama3:8b"
+    model_name:  str   = "llama3:8b-instruct-q4_K_M"
     temperature: float = 0.2
     num_ctx:     int   = 4096
     num_predict: int   = 512
@@ -306,7 +306,7 @@ class AutoConfig:
     def from_system(cls, model_name: str | None = None) -> "AutoConfig":
         has, cnt = cls._has_nvidia()
         return cls(
-            model_name=model_name or "llama3.1:8b",
+            model_name=model_name or "llama3:8b-instruct-q4_K_M",
             use_gpu=has,
             gpu_count=cnt,
             num_thread=_cpu_threads(),

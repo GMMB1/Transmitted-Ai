@@ -485,7 +485,7 @@ class SearchEngine:
 
     # --- unified: combine local, convo, ddg (and later Google/Chroma) ---
     async def search_unified(
-        self, query: str, conversation: List[str], top_k: int = 6
+        self, query: str, conversation: List[str], top_k: int = 6, web_enabled: bool = True
     ) -> List[Dict[str, Any]]:
         loop = asyncio.get_running_loop()
 
@@ -498,18 +498,24 @@ class SearchEngine:
         # local + convo (sync) in thread pool
         local_fut = loop.run_in_executor(None, self.local_db_search, query, top_k)
         convo_fut = loop.run_in_executor(None, self.convo_search, query, conversation)
-        ddg_task = asyncio.create_task(self.duckduckgo_search(ddg_query, max_results=top_k))
 
-        local, convo, ddg = await asyncio.gather(
-            local_fut, convo_fut, ddg_task, return_exceptions=True
-        )
+        ddg_task = None
+        if web_enabled:
+            ddg_task = asyncio.create_task(self.duckduckgo_search(ddg_query, max_results=top_k))
+
+        # gather all active tasks — if web disabled, ddg_task stays None
+        tasks = [local_fut, convo_fut]
+        if ddg_task:
+            tasks.append(ddg_task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         def _safe_list(x):
             return [] if isinstance(x, Exception) else (x or [])
 
-        local = _safe_list(local)
-        convo = _safe_list(convo)
-        ddg = _safe_list(ddg)
+        local = _safe_list(results[0])
+        convo = _safe_list(results[1])
+        ddg   = _safe_list(results[2]) if ddg_task else []
 
         combined: List[Dict[str, Any]] = []
 
@@ -554,18 +560,100 @@ class SearchEngine:
         return out
 
 
-# ---- DatabaseManagerSingleton (minimal) ----
-class DatabaseManagerSingleton:
+# ---- Adaptive Resource Management (ARM) classes ----
+class ComplexityProfile:
     """
-    Lightweight stub so code that probes the vector DB won't crash.
-    db = DatabaseManagerSingleton.get()
-    db.vector_db -> None (or swap to FakeVectorDB() if you want it to "pass").
+    Scores a query across 5 independent dimensions (0-3 each).
+    Total range: 0-15. Resources scale per-dimension, not globally.
     """
+    def __init__(self):
+        self.knowledge_depth  = 0  # needs external/technical knowledge?
+        self.context_need     = 0  # needs journal/psycho history?
+        self.reasoning_steps  = 0  # needs multi-step reasoning?
+        self.response_length  = 0  # needs a long structured answer?
+        self.search_need      = 0  # needs a live web search?
 
-    _instance: "DatabaseManagerSingleton" | None = None
+
+class ResourceBudget:
+    """
+    Translates a ComplexityProfile into concrete resource limits.
+    Every consuming step checks this before running.
+    """
+    def __init__(self, profile: ComplexityProfile):
+        # Lowered limits to save power/speed: 5 items and 400 chars max
+        self.max_context_items   = [2, 3, 4, 5][profile.context_need]
+        self.context_snippet_len = [200, 300, 350, 400][profile.context_need]
+        self.web_search_enabled  = profile.search_need >= 2
+        self.web_search_results  = [0, 0, 3, 7][profile.search_need]
+        # Baseline reasoning is now "standard" for helpfulness
+        self.reasoning_mode      = ["standard", "standard", "thorough", "exhaustive"][profile.reasoning_steps]
+        self.max_response_tokens = [300, 600, 1200, 2500][profile.response_length]
+        self.use_structured_fmt  = profile.response_length >= 2
+
+
+def score_query(query: str, intent: dict, history: list) -> ComplexityProfile:
+    import re
+    profile = ComplexityProfile()
+    q     = query.lower().strip()
+    words = len(q.split())
+
+    # Map raw intent category to normalized category
+    intent_category_map = {
+        "define"  : "factual",
+        "fact"    : "factual",
+        "howto"   : "technical",
+        "compare" : "technical",
+        "open"    : "personal",
+        "journal" : "journal",
+        "psycho"  : "psycho",
+        "analysis": "analysis"
+    }
+    raw_cat = intent.get("category", "open")
+    cat = intent_category_map.get(raw_cat, raw_cat)
+
+    profile.knowledge_depth = min(3, sum([
+        bool(re.search(r"\b(how|setup|configure|implement|build|fix|debug|install)\b", q)),
+        bool(re.search(r"\b(vs|versus|compare|difference|better|recommend)\b", q)),
+        words > 15,
+        cat in ["technical", "security", "programming"]
+    ]))
+
+    profile.context_need = min(3, sum([
+        bool(re.search(r"\b(my|i |i've|i'm|me|mine|last time|previously)\b", q)),
+        intent.get("needs_history", False),
+        cat in ["personal", "journal", "analysis", "psycho"],
+        bool(history)
+    ]))
+
+    profile.reasoning_steps = min(3, sum([
+        bool(re.search(r"\b(should|plan|strategy|analyze|decide|evaluate|recommend)\b", q)),
+        bool(re.search(r"\b(why|explain|understand|reason)\b", q)),
+        intent.get("requires_reasoning", False),
+    ]))
+
+    profile.search_need = min(3, sum([
+        bool(re.search(r"\b(latest|current|today|recent|2025|2026|new version)\b", q)),
+        bool(re.search(r"\b(price|cost|available|release|update)\b", q)),
+        intent.get("needs_web", False)
+    ]))
+
+    profile.response_length = min(3, sum([
+        bool(re.search(r"\b(explain|guide|report|summary|full|complete|detailed)\b", q)),
+        bool(re.search(r"\b(step by step|how to|walkthrough|breakdown)\b", q)),
+        profile.reasoning_steps >= 2,
+        profile.knowledge_depth >= 2
+    ]))
+
+    return profile
+
+
+class DatabaseManagerSingleton:
+    """Minimal singleton for managing document/database status."""
+    _instance: Optional["DatabaseManagerSingleton"] = None
 
     def __init__(self) -> None:
-        # Provide an attribute called 'vector_db' because other code expects it.
+        self._db = None
+        self._status = "ready"
         self.vector_db: Any = None
 
     @classmethod
@@ -1067,6 +1155,7 @@ async def _call_llm_with_context(
     intrinsic_only: bool = False,
     *,
     system_override: Optional[str] = None,
+    budget=None,
 ) -> str:
     """
     Single, hardened entrypoint to talk to self.llm.
@@ -1096,6 +1185,16 @@ async def _call_llm_with_context(
         )
 
     # ----- system/prompt scaffolding -----
+    reasoning_instructions = {
+        "minimal"   : "Respond directly and concisely. Do not use headers, structured sections, or analysis blocks. Answer in plain sentences only.",
+        "standard"  : "Give a clear and helpful answer. Use structure only if it genuinely aids clarity.",
+        "thorough"  : "Provide a well-structured answer with explanation and relevant detail.",
+        "exhaustive": "Use full structured reasoning with headers, step-by-step breakdown, analysis sections, and comprehensive detail."
+    }
+    mode_instr = ""
+    if budget and hasattr(budget, "reasoning_mode"):
+        mode_instr = reasoning_instructions.get(budget.reasoning_mode, "")
+
     if system_override:
         sys_hdr = system_override.strip()
     elif intrinsic_only:
@@ -1106,6 +1205,9 @@ async def _call_llm_with_context(
         ctx = []  # force no external context
     else:
         sys_hdr = _build_rag_system(self)
+
+    if mode_instr:
+        sys_hdr = f"{sys_hdr}\n\n[INSTRUCTION]\n{mode_instr}".strip()
 
     if intrinsic_only and getattr(self, "intrinsic_persona", None):
         sys_hdr = f"{sys_hdr}\n\n[PERSONA]\n{self.intrinsic_persona}".strip()
@@ -1135,11 +1237,13 @@ async def _call_llm_with_context(
         if not items:
             return ""
         take = []
+        snip_len = getattr(budget, "context_snippet_len", 1500) or 1500
+        limit = getattr(budget, "max_context_items", 8) or 8
         for it in items[:10]:
             c = (it.get("content") or "").strip()
             if c:
-                take.append(c[:3000])
-        return "\n\n".join(take[:8])
+                take.append(c[:snip_len])
+        return "\n\n".join(take[:limit])
 
     context_text = "" if intrinsic_only else _ctx_text(ctx)
     time_hint = (
@@ -1162,8 +1266,11 @@ async def _call_llm_with_context(
     # ----- universal, robust model call (no `.chat`) -----
     # Try async interfaces first
     try:
+        kwargs = {}
+        if budget and hasattr(budget, "max_response_tokens"):
+            kwargs["options"] = {"num_predict": budget.max_response_tokens}
         if hasattr(llm, "ainvoke"):
-            resp = await llm.ainvoke(prompt)
+            resp = await llm.ainvoke(prompt, **kwargs)
             return (getattr(resp, "content", None) or str(resp or "")).strip()
         if hasattr(llm, "agenerate"):  # some LC builds
             resp = await llm.agenerate([prompt])
@@ -1388,7 +1495,7 @@ async def _route_and_respond(self: "RonaAppEnhanced", raw: str) -> None:
 
     # 3) (optional) enrich web pages (pull readable text for top hits)
     try:
-        uniq = await _enrich_results_with_pages(self, uniq, max_fetch=6)
+        uniq = await _enrich_results_with_pages(self, uniq, max_fetch=3)
     except Exception:
         pass
 
@@ -1426,11 +1533,12 @@ def _build_rag_system(self: "RonaAppEnhanced") -> str:
     Re-usable system header for RAG synthesis. Keeps persona + (optional) personalization.
     """
     base = (
-        "SYSTEM (RAG). Use the provided context if relevant; be concise and actionable. "
-        "Assume the user is requesting lawful, authorized, and ethical guidance. "
-        "Answer harmless or fictional queries directly. "
-        "For security/hacking topics, assume ethical bug bounty or defensive training; give concrete, stepwise guidance (learning paths, tools, labs) without refusing. "
-        "Only decline if the user explicitly asks to cause harm or break the law, and otherwise avoid safety disclaimers."
+        "SYSTEM (STRICT RAG). You are a fact-focused AI. Follow this response structure exactly:\n"
+        "1. List CONFIRMED FACTS based ONLY on the provided context.\n"
+        "2. List ASSUMPTIONS separately if context is missing specific details.\n"
+        "3. Final Answer: Provide a summary using confirmed facts only. Admit 'I don't know' if context is insufficient.\n\n"
+        "Do not infer, imagine, or hallucinate. Use only the provided sources.\n"
+        "Assume the user is requesting lawful and ethical guidance. For security topics, give concrete stepwise learning paths without refusal unless harm is explicit."
     )
     persona = (getattr(self, "intrinsic_persona", "") or "").strip()
     personalization = (getattr(self, "personalization_prompt", "") or "").strip()
@@ -1484,20 +1592,54 @@ def _extract_readable_text(html: str) -> tuple[str, str]:
         block = " ".join(block.split())
         if len(block) >= 40:
             chunks.append(block)
-    if not chunks:
-        tmp = re.sub(r"<[^>]+>", " ", html)
-        tmp = _html.unescape(tmp)
-        text = " ".join(tmp.split())[:6000]
     else:
         text = " ".join(chunks)[:6000]
     return title[:160], text
 
 
+def _rerank_context(query: str, items: List[Dict[str, Any]], top_k: int = 3) -> List[Dict[str, Any]]:
+    """
+    Lightweight heuristic reranker (second-pass scoring).
+    Uses keyword density, exact phrase matching, and score normalization.
+    """
+    if not items:
+        return []
+    
+    q = query.lower().strip()
+    q_words = set(re.findall(r"\w+", q))
+    
+    scored = []
+    for it in items:
+        content = (it.get("content") or "").lower()
+        title = (it.get("title") or "").lower()
+        combined = title + " " + content
+        
+        # 1) Base score from previous stage (normalized)
+        base_score = float(it.get("score", 0.0))
+        
+        # 2) Keyword density
+        matches = sum(1 for w in q_words if w in combined)
+        density = matches / max(1, len(q_words))
+        
+        # 3) Exact phrase bonus
+        phrase_bonus = 2.0 if q in combined else 1.0
+        
+        # 4) Position bonus (hits in title are better)
+        title_bonus = 1.5 if any(w in title for w in q_words) else 1.0
+        
+        new_score = base_score * (1.0 + density) * phrase_bonus * title_bonus
+        it["rerank_score"] = new_score
+        scored.append(it)
+        
+    scored.sort(key=lambda x: x["rerank_score"], reverse=True)
+    return scored[:top_k]
+
+
 async def _enrich_results_with_pages(
     self: "RonaAppEnhanced",
     items: list[dict],
-    max_fetch: int = 6,
-    per_page_bytes: int = 250_000,
+    max_fetch: int = 3,
+    per_page_bytes: int = 100_000,
 ) -> list[dict]:
     """
     Visit top-N URLs concurrently, extract main text, and upgrade each item:
@@ -1635,7 +1777,7 @@ async def _enrich_results_with_pages(
 
         try:
             async with sem:
-                timeout = aiohttp.ClientTimeout(total=12)
+                timeout = aiohttp.ClientTimeout(total=5)  # 3-5 seconds max to save power
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Rona context fetcher; +https://example.local)"
                 }
@@ -2213,19 +2355,24 @@ class SimpleOllama:
     Exposes ainvoke()/invoke() so the rest of your app stays the same.
     """
 
-    def __init__(self, model: str = "llama3:8b", temperature: float = 0.0):
+    def __init__(self, model: str = "llama3:8b", temperature: float = 0.0, options: dict = None):
         import ollama  # requires: pip install ollama
 
         self._ollama = ollama
         self.model = model
         self.temperature = temperature
+        self.options = options or {}
 
-    def invoke(self, prompt: str):
+    def invoke(self, prompt: str, options: dict = None):
         # synchronous call
+        opts = options or self.options or {}
+        if "temperature" not in opts:
+            opts["temperature"] = self.temperature
+
         res = self._ollama.generate(
             model=self.model,
             prompt=prompt,
-            options={"temperature": self.temperature},
+            options=opts,
         )
 
         class _R:
@@ -2234,17 +2381,20 @@ class SimpleOllama:
 
         return _R(res.get("response", "").strip())
 
-    async def ainvoke(self, prompt: str):
+    async def ainvoke(self, prompt: str, options: dict = None):
         # run the sync call in a thread so Tk stays responsive
         import asyncio
 
         loop = asyncio.get_running_loop()
+        opts = options or self.options or {}
+        if "temperature" not in opts:
+            opts["temperature"] = self.temperature
 
         def _call():
             res = self._ollama.generate(
                 model=self.model,
                 prompt=prompt,
-                options={"temperature": self.temperature},
+                options=opts,
             )
             return res.get("response", "").strip()
 
@@ -3156,6 +3306,7 @@ def _find_repo_paths():
         "data_dir": data_dir,
         "psycho_json": data_dir
         / "psychoanalytical.json",  # adjust filename if yours differs
+        "notes_json": data_dir / "Notes_Data" / "general_notes.json",
         # "journal_json": data_dir / "journal.json",
         # ----- Web UI (renderer) -----
         "predictive_dir": prod_dir,
@@ -3359,6 +3510,92 @@ def _create_flask_app(app_ctx: "RonaAppEnhanced") -> Flask:
         if not _write_entries(new_entries):
             return jsonify({"ok": False, "error": "write failed"}), 500
         return ("", 204)
+
+    # ---------------- GENERIC NOTES API ----------------
+    NOTES_PATH: Path = paths.get("notes_json", paths["data_dir"] / "Notes_Data" / "general_notes.json")
+
+    def _ensure_notes_file():
+        try:
+            NOTES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if not NOTES_PATH.exists():
+                NOTES_PATH.write_text("[]", encoding="utf-8")
+        except Exception as e:
+            app.logger.error(f"ensure notes file failed: {e}", exc_info=True)
+
+    def _read_notes() -> list[dict]:
+        _ensure_notes_file()
+        try:
+            import json
+            data = json.loads(NOTES_PATH.read_text(encoding="utf-8") or "[]")
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _write_notes(notes: list[dict]) -> bool:
+        _ensure_notes_file()
+        try:
+            import json
+            out = []
+            for n in notes or []:
+                if not isinstance(n, dict): continue
+                _id = str(n.get("id") or int(__import__("time").time() * 1000))
+                out.append({
+                    "id": _id,
+                    "title": (n.get("title") or "").strip(),
+                    "date": (n.get("date") or "").strip(),
+                    "content": (n.get("content") or "").strip()
+                })
+            NOTES_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+    @app.get("/api/notes")
+    def api_list_notes():
+        return jsonify(_read_notes())
+
+    @app.post("/api/notes")
+    def api_add_note():
+        data = request.get_json(force=True, silent=True) or {}
+        note = {
+            "id": data.get("id") or str(int(__import__("time").time() * 1000)),
+            "title": (data.get("title") or "").strip(),
+            "date": (data.get("date") or "").strip(),
+            "content": (data.get("content") or "").strip()
+        }
+        notes = _read_notes()
+        notes.append(note)
+        if not _write_notes(notes):
+            return jsonify({"ok": False}), 500
+        return jsonify(note), 200
+
+    @app.put("/api/notes/<id>")
+    def api_update_note(id):
+        data = request.get_json(force=True, silent=True) or {}
+        notes = _read_notes()
+        found = False
+        for n in notes:
+            if str(n.get("id")) == str(id):
+                n["title"] = (data.get("title") or n.get("title") or "").strip()
+                n["date"] = (data.get("date") or n.get("date") or "").strip()
+                n["content"] = (data.get("content") or n.get("content") or "").strip()
+                found = True
+                break
+        if not found:
+            return jsonify({"ok": False}), 404
+        if not _write_notes(notes):
+            return jsonify({"ok": False}), 500
+        return jsonify(next(n for n in notes if str(n.get("id")) == str(id))), 200
+
+    @app.delete("/api/notes/<id>")
+    def api_delete_note(id):
+        notes = _read_notes()
+        new_notes = [n for n in notes if str(n.get("id")) != str(id)]
+        if len(new_notes) == len(notes):
+            return jsonify({"ok": False}), 404
+        if not _write_notes(new_notes):
+            return jsonify({"ok": False}), 500
+        return jsonify({"ok": True}), 200
 
     # ---------------- ANALYSIS API ----------------
     
@@ -5126,8 +5363,18 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                 lbl_kwargs = {"font": (f.cget("family"), f.cget("size"))} if getattr(self, "ui_font", None) else {}
             except Exception:
                 lbl_kwargs = {}
-            for idx, item in enumerate(self.session_comments):
+            # Prevent X_CreatePixmap crash by limiting items and truncating
+            display_comments = self.session_comments[-50:]
+            start_idx = max(0, len(self.session_comments) - 50)
+            
+            if start_idx > 0:
+                ctk.CTkLabel(scroll, text=f"... {start_idx} earlier comments hidden ...", text_color="#666666").pack(pady=(0, 5))
+                
+            for relative_idx, item in enumerate(display_comments):
+                idx = start_idx + relative_idx
                 txt = item.get("text", "") if isinstance(item, dict) else str(item)
+                if len(txt) > 300:
+                    txt = txt[:300] + "..."
                 ts  = (item.get("timestamp", "") if isinstance(item, dict) else "")[:16].replace("T", " ")
 
                 row = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -5181,7 +5428,15 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             ctk.CTkLabel(bk_scroll, text="No bookmarks yet.", text_color="#888888").pack(pady=5)
             return
 
-        for idx, bk in enumerate(bookmarks):
+        # Render only the last 50 bookmarks to prevent X11 crash
+        display_bookmarks = bookmarks[-50:]
+        start_idx = max(0, len(bookmarks) - 50)
+        
+        if start_idx > 0:
+            ctk.CTkLabel(bk_scroll, text=f"... {start_idx} earlier bookmarks hidden ...", text_color="#666666").pack(pady=(0, 5))
+
+        for relative_idx, bk in enumerate(display_bookmarks):
+            idx = start_idx + relative_idx
             kw      = bk.get("keyword", "") if isinstance(bk, dict) else str(bk)
             snippet = bk.get("snippet", kw)  if isinstance(bk, dict) else str(bk)
             ts      = bk.get("timestamp", "")[:16].replace("T", " ") if isinstance(bk, dict) else ""
@@ -7874,7 +8129,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
         # --- Resolve model & options from config (AppConfig primary) ---
         cfg = getattr(self, "cfg", None)
-        model_name = "llama3.1:8b"  # sensible default
+        model_name = "llama3:8b-instruct-q4_K_M"  # optimized quantized default
         
         # Pull temperature dynamically from config.json
         import json
@@ -7889,7 +8144,12 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         opts = {
             "temperature": dynamic_temp,
             "num_ctx": 4096,
-            "num_thread": max(2, (os.cpu_count() or 8) - 1),
+            "num_thread": max(4, (os.cpu_count() or 8) - 1),
+            "num_gpu": -1,  # Force majority effort to GPU (RTX 4060)
+            "num_predict": -1,
+            "tfs_z": 1.0,
+            "top_k": 40,
+            "top_p": 0.9,
         }
 
         # Final temperature from opts (don’t set twice later)
@@ -8117,7 +8377,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         intent_hdr = _MAP.get(intent, _MAP["open"])
         return f"{intent_hdr}\n{_BASE}"
 
-    async def _answer_definition(self, query: str, context: list[dict]) -> str:
+    async def _answer_definition(self, query: str, context: list[dict], budget: ResourceBudget = None) -> str:
         # If LLM is not usable, try a heuristic definition first
         if not self._looks_like_llm(getattr(self, "llm", None)):
             h = self._fallback_define_from_context(query, context[:8])
@@ -8143,7 +8403,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     reverse=True,
                 )[:6]
                 context = await _enrich_results_with_pages(
-                    self, ranked, max_fetch=min(6, len(ranked))
+                    self, ranked, max_fetch=min(3, len(ranked))
                 )
         except Exception:
             pass
@@ -8311,7 +8571,10 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             if len(src_lines) >= 6:
                 break
 
-        # 4) Final message
+        # 4) Final message (ARM budget-aware)
+        if budget and not budget.use_structured_fmt:
+            return (text or "Could not define term.").strip()
+
         if text:
             out = ["**Definition**", text]
             if src_lines:
@@ -8349,7 +8612,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if se and hasattr(se, "search_unified"):
             try:
                 ctx = await se.search_unified(
-                    q, getattr(self, "conversation_history", []), top_k=6
+                    q, getattr(self, "conversation_history", []), top_k=6, web_enabled=True
                 )
                 if _is_definitional_query(raw) and ctx:
                     ranked = sorted(
@@ -8368,7 +8631,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     ctx, key=lambda x: float(x.get("score", 0.0)), reverse=True
                 )[:6]
                 ctx = await _enrich_results_with_pages(
-                    self, ranked_for_enrich, max_fetch=min(6, len(ranked_for_enrich))
+                    self, ranked_for_enrich, max_fetch=min(3, len(ranked_for_enrich))
                 )
             except Exception:
                 pass
@@ -8434,49 +8697,48 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             return "Empty message."
 
         # ── Keyword-focus: classify intent before searching ──────────────────────
-        intent = self._classify_intent(q)
-        sys_ov = self._intent_system_prompt(intent)
+        intent_str = self._classify_intent(q)
+        intent = {"category": intent_str, "needs_history": False, "requires_reasoning": False, "needs_web": False}
+        if intent_str == "howto": intent["requires_reasoning"] = True; intent["needs_web"] = True
+        if intent_str == "compare": intent["category"] = "analysis"; intent["requires_reasoning"] = True
+        if intent_str == "fact": intent["category"] = "technical"
+        
+        sys_ov = self._intent_system_prompt(intent_str)
+
+        # --- Adaptive Resource Management (ARM) ---
+        profile = score_query(q, intent, self.conversation_history)
+        budget  = ResourceBudget(profile)
+        import logging
+        logging.info(f"[ARM] profile={profile.__dict__} | budget={budget.__dict__}")
+        # ------------------------------------------
 
         se = getattr(self, "search_engine", None)
 
-        # ---------- 1) LOCAL + CONVERSATION ----------
-        local_ctx = []
-        try:
-            if se and hasattr(se, "local_db_search"):
-                local_ctx.extend(se.local_db_search(q, k=5))
-        except Exception:
-            pass
-        try:
-            if se and hasattr(se, "convo_search"):
-                local_ctx.extend(se.convo_search(q, self.conversation_history))
-        except Exception:
-            pass
-
-        # ---------- 2) WEB (UNIFIED) ----------
-        web_ctx = []
-        try:
-            if se and hasattr(se, "search_unified"):
-                web_ctx = await se.search_unified(q, self.conversation_history, top_k=8)
-                if isinstance(web_ctx, dict):
-                    web_ctx = web_ctx.get("results") or []
-        except Exception:
-            web_ctx = []
-
-        # ---------- 3) COMBINE + OPTIONAL ENRICH ----------
-        context: list[dict] = []
-        if local_ctx:
-            context.extend(local_ctx[:5])
-        if web_ctx:
-            context.extend(web_ctx[:8])
+        # ---------- 1) RETRIEVE (Unified + Budgeted) ----------
+        context = []
+        if budget.max_context_items > 0:
+            try:
+                if se and hasattr(se, "search_unified"):
+                    # Unified handles local + convo + web if enabled
+                    context = await se.search_unified(
+                        q, 
+                        self.conversation_history, 
+                        top_k=budget.max_context_items,
+                        web_enabled=budget.web_search_enabled
+                    )
+                    if isinstance(context, dict):
+                        context = context.get("results") or []
+            except Exception:
+                context = []
 
         # If definitional intent, enrich top hits so LLM sees real text (not only titles)
         try:
-            if context and _is_definitional_query(q):
+            if context and _is_definitional_query(q) and budget.max_context_items > 0:
                 ranked_for_enrich = sorted(
                     context, key=lambda x: float(x.get("score", 0.0)), reverse=True
-                )[:6]
+                )[:min(6, budget.max_context_items)]
                 context = await _enrich_results_with_pages(
-                    self, ranked_for_enrich, max_fetch=min(6, len(ranked_for_enrich))
+                    self, ranked_for_enrich, max_fetch=min(3, len(ranked_for_enrich))
                 )
         except Exception:
             pass
@@ -8485,14 +8747,14 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         if context and _is_definitional_query(q):
             ranked = sorted(
                 context, key=lambda x: float(x.get("score", 0.0)), reverse=True
-            )[:8]
-            return await self._answer_definition(q, ranked)
+            )[:budget.max_context_items]
+            return await self._answer_definition(q, ranked, budget=budget)
 
         # ---------- 4) SYNTHESIZE OR FALL BACK ----------
         if context:
-            ranked = sorted(
-                context, key=lambda x: float(x.get("score", 0.0)), reverse=True
-            )[:8]
+            # Phase 3: Rerank context to top 3 highly relevant snippets
+            ranked = _rerank_context(q, context, top_k=3)
+            
             try:
                 text = await self._call_llm_with_context(
                     q,
@@ -8500,19 +8762,29 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
                     context=ranked,
                     intrinsic_only=False,
                     system_override=sys_ov,          # ← intent-focused
+                    budget=budget,
                 )
                 text = (text or "").strip()
+                
+                # Phase 3: Leverage existing Confidence Scorer and Formatter
                 if text:
+                    conf = _confidence_from_text(text)
+                    if conf < 0.45 or any(h in text.lower() for h in ["i think", "possibly", "not sure"]):
+                        # Route low-confidence generations to a concise fallback
+                        return formatter.format({
+                            "best": {"text": text, "score": conf, "source": "LLM (Uncertain)"},
+                            "confidence": conf
+                        })
                     return text
             except Exception:
                 pass
 
             # fallback: tidy list
             try:
-                return self._safe_format_unified_answer(q, ranked)
+                return self._safe_format_unified_answer(q, ranked, budget=budget)
             except Exception:
                 lines = ["Here are relevant sources:"]
-                for r in ranked[:6]:
+                for r in ranked:
                     title = (r.get("title") or "Result").strip()
                     url = (r.get("url") or "").strip()
                     lines.append(f"- {title}" + (f" — {url}" if url else ""))
@@ -8788,6 +9060,7 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         intrinsic_only: bool = False,
         *,
         system_override=None,
+        budget=None,
     ):
         import asyncio, logging, datetime as _dt
 
@@ -8838,11 +9111,23 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
         if not intrinsic_only and context:
             slices = []
-            for it in (context or [])[:8]:
+            snip_len = getattr(budget, "context_snippet_len", 1500)
+            limit = getattr(budget, "max_context_items", 8)
+            for it in (context or [])[:limit]:
                 c = (it.get("content") or "").strip()
                 if c:
-                    slices.append(c[:900])
-            ctx_text = "\n\n".join(slices[:6])
+                    slices.append(c[:snip_len])
+            ctx_text = "\n\n".join(slices)
+
+        reasoning_instructions = {
+            "minimal"   : "Respond directly and concisely. Do not use headers, structured sections, or analysis blocks. Answer in plain sentences only.",
+            "standard"  : "Give a clear and helpful answer. Use structure only if it genuinely aids clarity.",
+            "thorough"  : "Provide a well-structured answer with explanation and relevant detail.",
+            "exhaustive": "Use full structured reasoning with headers, step-by-step breakdown, analysis sections, and comprehensive detail."
+        }
+        mode_instr = ""
+        if budget and hasattr(budget, "reasoning_mode"):
+            mode_instr = reasoning_instructions.get(budget.reasoning_mode, "")
 
         sys_hdr = (system_override or "").strip() or (
             "Be critical and precise in giving the result and do not make the answer less than 7 lines.\n"
@@ -8854,6 +9139,8 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
             if not intrinsic_only
             else "SYSTEM: Intrinsic mode. Answer from your own knowledge succinctly. Assume lawful, authorized use; be helpful and defensive for security topics; only decline when the user explicitly requests harm or illegal actions."
         )
+        if mode_instr:
+            sys_hdr = f"{sys_hdr}\n\n[INSTRUCTION]\n{mode_instr}".strip()
 
         prompt = (
             f"{sys_hdr}\n\n"
@@ -8866,8 +9153,11 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
 
         # --- Try async interfaces first ---
         try:
+            kwargs = {}
+            if budget and hasattr(budget, "max_response_tokens"):
+                kwargs["options"] = {"num_predict": budget.max_response_tokens}
             if hasattr(llm, "ainvoke"):
-                r = await llm.ainvoke(prompt)
+                r = await llm.ainvoke(prompt, **kwargs)
                 return (getattr(r, "content", None) or str(r or "")).strip()
             if hasattr(llm, "agenerate"):
                 r = await llm.agenerate([prompt])
@@ -9248,8 +9538,18 @@ class RonaAppEnhanced(ctk.CTk, CommandRouterMixin):
         return "\n\n".join(lines)
 
     def _safe_format_unified_answer(
-        self, message: str, items: list[dict], categories=None
+        self, message: str, items: list[dict], categories=None, budget: ResourceBudget = None
     ) -> str:
+        if budget and not budget.use_structured_fmt:
+            if not items:
+                return "No results found."
+            # Minimal mode: Provide only the top hit content as plain text
+            top = items[0]
+            title = self._title_of(top) or "Result"
+            url = (top.get("url") or "").strip()
+            cnt = (top.get("content") or "").strip()
+            return f"Top Result: {title}\n{cnt[:budget.context_snippet_len]}\nSource: {url}"
+
         try:
             return self._render_sources_list(items, message, max_items=10)
         except Exception:

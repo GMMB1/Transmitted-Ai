@@ -10,6 +10,7 @@ const Storage = {
     templates: [],
     quickNotes: '',
     favorites: [],
+    habits: [],
     settings: {
         theme: 'default',
         lastSuggestedDates: [] // Track last 10 suggested dates
@@ -41,6 +42,7 @@ const Storage = {
                 this.templates = data.templates || [];
                 this.quickNotes = data.quickNotes || '';
                 this.favorites = data.favorites || [];
+                this.habits = data.habits || [];
                 this.settings = data.settings || { theme: 'default' };
             }
         } catch (error) {
@@ -92,6 +94,7 @@ const Storage = {
 
         this.quickNotes = data.quickNotes || '';
         this.favorites = data.favorites || [];
+        this.habits = data.habits || [];
         this.settings = data.settings || { theme: 'default' };
     },
 
@@ -148,6 +151,7 @@ const Storage = {
                 templates: this.templates,
                 quickNotes: this.quickNotes,
                 favorites: this.favorites,
+                habits: this.habits,
                 settings: this.settings
             };
 
@@ -241,6 +245,7 @@ const Storage = {
                 templates: this.templates,
                 quickNotes: this.quickNotes,
                 favorites: this.favorites,
+                habits: this.habits,
                 settings: this.settings
             };
             localStorage.setItem('daily_productivity_full_data', JSON.stringify(data));
@@ -472,6 +477,32 @@ const Storage = {
         this.save();
     },
 
+    // ==================== Habits ====================
+    addHabit(habit) {
+        this.habits.push(habit);
+        this.save();
+    },
+
+    updateHabit(id, updatedHabit) {
+        const index = this.habits.findIndex(h => h.id === id);
+        if (index !== -1) {
+            this.habits[index] = { ...this.habits[index], ...updatedHabit };
+            this.save();
+        }
+    },
+
+    deleteHabit(id) {
+        const index = this.habits.findIndex(h => h.id === id);
+        if (index !== -1) {
+            this.habits.splice(index, 1);
+            this.save();
+        }
+    },
+
+    getHabits() {
+        return this.habits;
+    },
+
     // ==================== Backup & Restore ====================
     exportAllData() {
         return JSON.stringify({
@@ -481,6 +512,7 @@ const Storage = {
             templates: this.templates,
             quickNotes: this.quickNotes,
             favorites: this.favorites,
+            habits: this.habits,
             settings: this.settings,
             exportedAt: new Date().toISOString()
         }, null, 2);
@@ -495,6 +527,7 @@ const Storage = {
             if (data.templates) this.templates = data.templates;
             if (data.quickNotes !== undefined) this.quickNotes = data.quickNotes;
             if (data.favorites) this.favorites = data.favorites;
+            if (data.habits) this.habits = data.habits;
             if (data.settings) this.settings = data.settings;
 
             await this.save();
