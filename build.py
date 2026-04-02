@@ -1,11 +1,11 @@
 """
-build.py — Build Rona_v9_6.py into a Windows .exe using PyInstaller.
+build.py — Build Arwanos_v9_8.py into a Windows .exe using PyInstaller.
 
 Usage:
     python build.py              # normal build
     python build.py --onefile    # single .exe (slower startup, easier to share)
 
-Output: dist/Rona/Rona.exe  (or dist/Rona.exe with --onefile)
+Output: dist/Arwanos/Arwanos.exe  (or dist/Arwanos.exe with --onefile)
 """
 
 import subprocess
@@ -16,10 +16,10 @@ from pathlib import Path
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths (all resolved relative to this script so it works on any machine)
 # ─────────────────────────────────────────────────────────────────────────────
-HERE     = Path(__file__).resolve().parent
-SCRIPT   = HERE / "Rona_v9_6.py"
-ICON     = HERE / "rona_icon.ico"
-DIST_DIR = HERE / "dist"
+HERE      = Path(__file__).resolve().parent
+SCRIPT    = HERE / "Arwanos_v9_8.py"
+ICON      = HERE / "Arwanos_icon.ico"
+DIST_DIR  = HERE / "dist"
 BUILD_DIR = HERE / "build"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,8 +35,8 @@ datas = [
     (str(HERE / "rtl_text.py"),          "."),
     (str(HERE / "ui_enhancements.py"),   "."),
     (str(HERE / "config.json"),          "."),
-    (str(HERE / "rona_icon.ico"),        "."),
-    (str(HERE / "rona_avatar.png"),      "."),
+    (str(HERE / "Arwanos_icon.ico"),     "."),
+    (str(HERE / "Arwanos_icon.png"),     "."),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ def build(onefile: bool = False):
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name",        "Rona",
+        "--name",        "Arwanos",
         "--icon",        str(ICON),
         "--noconfirm",
         "--clean",
@@ -122,9 +122,9 @@ def build(onefile: bool = False):
 
     if result.returncode == 0:
         if onefile:
-            out = DIST_DIR / "Rona.exe"
+            out = DIST_DIR / "Arwanos.exe"
         else:
-            out = DIST_DIR / "Rona" / "Rona.exe"
+            out = DIST_DIR / "Arwanos" / "Arwanos.exe"
         print(f"\n✅ Build successful!\n   Output: {out}\n")
     else:
         print("\n❌ Build failed. Check errors above.\n")

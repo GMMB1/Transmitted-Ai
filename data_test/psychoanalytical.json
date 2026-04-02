@@ -1,0 +1,177 @@
+[
+  {
+    "id": "demo_001",
+    "title": "Starting fresh — new habits",
+    "date": "2025-11-01",
+    "details": "Today I decided to finally commit to waking up early. Set the alarm for 6 AM and actually got up. Had a coffee, opened my laptop, studied for two hours before the day got busy. It felt really good. I want to make this a habit. The problem is I know myself — I start strong then fall back after a few days. But this time I feel different. I also went for a short walk in the evening which cleared my head a lot.",
+    "mood": 7.5
+  },
+  {
+    "id": "demo_002",
+    "title": "Fell back already",
+    "date": "2025-11-03",
+    "details": "Woke up at 9:30. So much for the early start. I was up until 2 AM watching YouTube and before I knew it the alarm was nothing. I missed my study block and felt guilty the whole day. Managed to do a little work in the afternoon but it felt forced. I hate this pattern — I do well for one day then immediately break it. Why can't I just be consistent?",
+    "mood": 3.0
+  },
+  {
+    "id": "demo_003",
+    "title": "Understood something today",
+    "date": "2025-11-05",
+    "details": "I think the reason I always relapse into late nights is boredom mixed with avoidance. When I have something hard to do tomorrow, I stay up to delay facing it. Tonight I have an exam review and I found myself opening Reddit at 11 PM. Caught myself doing it this time though. Closed the laptop and went to sleep at 12. Small win but I noticed the trigger at least.",
+    "mood": 6.0
+  },
+  {
+    "id": "demo_004",
+    "title": "The exam went okay",
+    "date": "2025-11-07",
+    "details": "Passed the module exam, not brilliantly but passed. I feel relieved but also a bit flat — like after every finish line I don't feel the satisfaction I expected. I thought I'd feel proud but it just feels like okay, next thing. Maybe I'm too hard on myself. Or maybe I expected more. I don't know. Going to rest this weekend.",
+    "mood": 5.5
+  },
+  {
+    "id": "demo_005",
+    "title": "Weekend wasted",
+    "date": "2025-11-09",
+    "details": "Spent the whole weekend on my phone. Two full days. I told myself I deserved the rest but honestly it was just avoidance again. I didn't rest — I numbed out. I feel worse now than before the weekend started. My back hurts from lying down so much, my head is foggy, and I feel behind on everything. I need to be honest with myself: rest for me means doing nothing, but doing nothing for two days isn't rest, it's hiding.",
+    "mood": 2.5
+  },
+  {
+    "id": "demo_006",
+    "title": "Good conversation with a friend",
+    "date": "2025-11-11",
+    "details": "Talked to my friend for an hour today. He's going through something similar — the feeling of going in circles. We agreed that we both have a pattern of burning bright for a few days then crashing. He said something that stuck: 'You're not lazy, you're dysregulated.' I don't fully understand what that means but it resonated. I want to look into it more. Mood was better today just from talking.",
+    "mood": 6.5
+  },
+  {
+    "id": "demo_007",
+    "title": "Masturbation again — third time this week",
+    "date": "2025-11-13",
+    "details": "I know I keep writing about this but it keeps happening. Three times this week. It always starts when I'm bored and alone at night. I open my phone, go on social media, and within 30 minutes I'm in the cycle again. After it I always feel ashamed and empty. I want to stop but I can't find the off switch. The pattern is clear: boredom → phone → social media → escalation → regret. Every single time.",
+    "mood": 2.0
+  },
+  {
+    "id": "demo_008",
+    "title": "Tried the phone-in-drawer trick",
+    "date": "2025-11-15",
+    "details": "Read somewhere to put your phone in another room before bed. Tried it last night. It was uncomfortable — I kept wanting to check it. But I didn't. Slept at 11:30 PM which is early for me. Woke up actually feeling rested. Today was productive: three hours of focused work in the morning, gym in the afternoon. This might actually be the key — the phone is the trigger, not willpower. Remove the phone, remove the temptation.",
+    "mood": 8.0
+  },
+  {
+    "id": "demo_009",
+    "title": "Skipped gym, back to old patterns",
+    "date": "2025-11-18",
+    "details": "Three days since the good streak. Didn't go to the gym today, made excuses, stayed home. Then the phone came back to the bed at night. I'm noticing a clear pattern now: when I skip the gym, I also skip everything else. Exercise seems to be the anchor habit — when it goes, everything else goes with it. I've written this before. I know this. Why don't I act on it?",
+    "mood": 3.5
+  },
+  {
+    "id": "demo_010",
+    "title": "Family stress",
+    "date": "2025-11-20",
+    "details": "My dad made a comment about my future career. He means well but it triggered this spiral of self-doubt. Am I good enough? Am I moving too slow? Everyone around me seems to be advancing and I feel stuck. I ended up spending the night comparing myself to people on LinkedIn which made everything worse. Note to self: LinkedIn is poison when I'm already vulnerable. Should delete it from my phone.",
+    "mood": 2.0
+  },
+  {
+    "id": "demo_011",
+    "title": "Started a new project — actually excited",
+    "date": "2025-11-22",
+    "details": "Started working on a personal project today — a small tool for automating my study notes. I got lost in it for five hours straight without even noticing. That flow state feeling is incredible. When I have something that genuinely interests me, I don't procrastinate at all. The problem is most of my required work doesn't give me that feeling. I need to find ways to make it feel like a project I chose, not a task I have to do.",
+    "mood": 8.5
+  },
+  {
+    "id": "demo_012",
+    "title": "Sleep schedule completely broken",
+    "date": "2025-11-25",
+    "details": "Slept at 4 AM, woke up at 1 PM. This is what happens when I get into a project — I lose all structure. Two days ago I was celebrating my focus. Now I'm in the exact opposite extreme. I can't seem to find balance. It's always all-or-nothing with me. Either total discipline or total chaos. No middle ground. I wonder if this is just who I am or if it's something I can change.",
+    "mood": 4.0
+  },
+  {
+    "id": "demo_013",
+    "title": "Reflected on November",
+    "date": "2025-11-30",
+    "details": "Looking back at this month: I started strong, crashed fast, had a few good days when I removed distractions, got pulled down by family stress, found energy in creative work, then lost structure again. The pattern is consistent. My best days all had one thing in common: gym + no phone in bed + something genuinely interesting to work on. My worst days: no movement, phone in bed, pressure from outside (family, exams, comparison). I feel like I understand myself a little better at least.",
+    "mood": 6.0
+  },
+  {
+    "id": "demo_014",
+    "title": "December goal — just one habit",
+    "date": "2025-12-01",
+    "details": "Decided not to try to fix everything at once. This month, one habit only: phone out of the bedroom every night. That's it. No big promises. Just one small thing done every day. If I can build consistency on this one thing, maybe I can slowly add more. Past me tried to change five things at once and failed every time. New approach: boring and small.",
+    "mood": 7.0
+  },
+  {
+    "id": "demo_015",
+    "title": "First week of December — 6 out of 7",
+    "date": "2025-12-07",
+    "details": "Six nights out of seven with the phone in the drawer. I broke it once on Wednesday because I was stressed about a deadline and wanted to distract myself. But 6/7 is so much better than 0/7. I'm sleeping earlier, waking up clearer. I haven't relapsed into the bad habit since I started this. I think the correlation is real. The phone in bed was the root of more than one problem.",
+    "mood": 7.5
+  },
+  {
+    "id": "demo_016",
+    "title": "Avoidance mode — 3 days",
+    "date": "2025-12-11",
+    "details": "Three days of avoidance. Not catastrophic but I went quiet. Stopped journaling, stopped going to gym, barely cooked real food. I think it started when I got feedback on a project that wasn't great. Instead of dealing with it I just went numb. I do this — when something makes me feel inadequate I disappear from all effort, like punishing myself by withdrawing. By day three I realized what was happening and wrote this. That's progress I think — catching it faster.",
+    "mood": 3.0
+  },
+  {
+    "id": "demo_017",
+    "title": "Back after the dip",
+    "date": "2025-12-14",
+    "details": "Back. Gym today, meal prepped for three days, phone back in the drawer, journaling. When I come back after a dip it feels like I can see clearer. Like the low period gave me a reset. I don't want to romanticize the crashes — they're painful. But the comebacks are also meaningful. I always come back. That's something I should give myself credit for. I always come back.",
+    "mood": 7.0
+  },
+  {
+    "id": "demo_018",
+    "title": "Told my family about the app project",
+    "date": "2025-12-17",
+    "details": "Showed my mum what I've been building. She was more interested than I expected. My dad said 'you should finish it and sell it.' Which was actually encouraging for once. I realized I hide my work because I'm scared of judgment, but today I shared something and it was fine. Maybe I fear judgment more than the judgment itself. I should show my work more often.",
+    "mood": 8.0
+  },
+  {
+    "id": "demo_019",
+    "title": "Holiday anxiety",
+    "date": "2025-12-22",
+    "details": "Holiday break started and I immediately feel anxious about the unstructured time. Isn't that ironic — I wish for free time and then when I have it I don't know what to do with myself. The structure of deadlines gives me something to push against. Without it I feel formless. I think I need to create my own structure during breaks otherwise I spiral. Going to set very loose daily blocks just to have some shape to the day.",
+    "mood": 4.5
+  },
+  {
+    "id": "demo_020",
+    "title": "New year reflection",
+    "date": "2025-12-31",
+    "details": "Last entry of the year. What did I actually learn about myself? One: I am an all-or-nothing person. Two: my trigger for bad habits is always boredom + night + phone in bed. Three: movement (gym, walks) is the thing that regulates everything else. Four: I avoid things that make me feel inadequate instead of facing them. Five: I always come back. That last one is important. However bad a period gets, I always find my way back. I want to carry that into next year. I always come back.",
+    "mood": 7.0
+  },
+  {
+    "id": "demo_021",
+    "title": "First week of January — strong start",
+    "date": "2026-01-06",
+    "details": "Good week. Gym four times, phone out of bedroom every night, finished a feature on my project, read for 30 minutes each night. I feel calm and capable. I know this won't last perfectly but I also know that this is what good feels like and I can return to it. The journaling practice has actually helped — writing things down makes me see my patterns more clearly than just feeling them.",
+    "mood": 8.5
+  },
+  {
+    "id": "demo_022",
+    "title": "Burnout creeping in",
+    "date": "2026-01-14",
+    "details": "I've been pushing hard for two weeks and now I feel the wall. Not crisis-level, just flatness. Colors seem duller. Tasks feel heavy. I know this feeling — it's the early sign of burnout. The mistake I usually make is to push through it and make it worse. This time I'm going to deliberately slow down for a few days. Light work only, extra sleep, no self-criticism for reduced output. Treating it like maintenance, not failure.",
+    "mood": 4.5
+  },
+  {
+    "id": "demo_023",
+    "title": "Social comparison spiral again",
+    "date": "2026-01-19",
+    "details": "Saw a post from someone my age who just launched a full product with thousands of users. Within two hours I had read their entire portfolio, compared every achievement, and concluded I was behind. This is a poison loop I keep falling into. The comparison always starts online and always ends with me feeling small. The rational part of me knows comparison is meaningless. The emotional part doesn't care. I deleted Twitter from my phone again.",
+    "mood": 2.5
+  },
+  {
+    "id": "demo_024",
+    "title": "Talked to Arwanos about the patterns",
+    "date": "2026-01-22",
+    "details": "Used the /lovelyq feature to ask about my behavioral patterns. The analysis was surprisingly accurate — it named the all-or-nothing cycle, the avoidance behavior after criticism, and the role of physical movement as my regulation anchor. Seeing it laid out clearly was useful. Not easy to read but useful. I want to take the insight about criticism avoidance seriously — it's probably limiting me more than I realize.",
+    "mood": 6.5
+  },
+  {
+    "id": "demo_025",
+    "title": "Progress note — March",
+    "date": "2026-03-01",
+    "details": "Coming up on four months of journaling. Looking back at the entries: I can see the patterns clearly now. The crashes are shorter. The recoveries are faster. I'm not cured of anything — the same triggers still exist. But I catch them earlier. The phone in bed thing has become mostly automatic now. The gym has been consistent for six weeks straight. I still struggle with comparison and with avoidance after criticism. But I'm more honest with myself now than I was. That feels like real growth.",
+    "mood": 7.5
+  }
+]

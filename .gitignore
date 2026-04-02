@@ -34,3 +34,13 @@ Thumbs.db
 
 # Local folders to ignore
 Train/
+
+# Old version backups — contain hardcoded personal paths
+backups/
+
+# Personal documents / PDFs
+assets/*.pdf
+
+# Personal debug/build notes
+BUILD_ISSUES.txt
+build_issues.txt

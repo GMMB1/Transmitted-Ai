@@ -1,48 +1,59 @@
 <div align="center">
-  <img src="assets/rona1.png" width="160" alt="Rona Logo"/>
+  <img src="Arwanos_icon.png" width="160" alt="Arwanos Logo"/>
 </div>
 
-# Introduction
+# Arwanos — Transmitted AI Personal Assistant
 
-This repository is part of something called **Transmitted AI**.  
-We discuss RAG (Retrieval-Augmented Generation), psychological awareness, and the techniques I applied to achieve specific outcomes and highlight key elements of the response.
+**Arwanos** is a locally-running, privacy-first AI assistant built in Python.  
+It runs entirely on your machine using **Ollama** as the inference backend — no data ever leaves your device, no cloud API is called for core reasoning.
 
-> **Note:** If any of this sparks your curiosity, feel free to reach out through the contact box.
+This project is part of **Transmitted AI** — a framework that goes beyond standard RAG and chatbot patterns by infusing psychological awareness, adaptive resource management, and behavioral analysis into a local AI system.
 
----
-
-# Rona Project — Overview
-
-The system is powered by **Meta Llama 3**, a highly capable large language model that serves as the core engine behind Rona.
-Its massive pre-training dataset and human-friendly structure which make it special. You can also set whatever model you want — just change it in `config.py` (`MODEL_NAME` field) or change the line 1856 in main app.   
-It produces incredibly human-like text and performs extremely well in programming tasks.  
-
-In CyberSecurity, however, Llama 3 applies a lot of restrictions.  
-But — I bypassed that through adjustments I made to achieve specific outcomes and enhance certain aspects of the response.
-
-We often rely on the standard definition of RAG… 
-but does its potential really stop where the documentation draws the line?”
-**Absolutely not.**  
-Once you truly understand the architecture, you can take it far beyond what anyone expects.
+> If any of this sparks your curiosity, feel free to reach out.
 
 ---
 
-# What is Rona?
+# What is Arwanos?
 
-The **Rona Project** is my personal experiment — now a full application — that can:
+Arwanos is a personal experiment turned full application. It can:
 
 - Analyze human behavior through streamed daily notes
 - Detect emotional triggers, patterns, and internal loops inside your journal
 - Provide a friendly web UI for entering daily notes with weekly and monthly analysis features
 - Provide psychological insights based on user entries
 - Retrieve relevant information from live web search + AI model
-- Improve response quality through session-based training
-- Get fast, brief results from crawling the search engine using `what is`
-- Retrieve detailed information by emphasizing key query patterns such as ‘give me,’ ‘compare,’ and ‘how to,’ while leveraging natural language processing (NLP).
+- Improve response quality through session-based RAG
+- Route queries intelligently — simple questions answered instantly, complex ones automatically trigger web search
 
-Rona doesn't just chat.
+Arwanos doesn't just chat.
 
-**Rona reads between the lines.**
+**Arwanos reads between the lines.**
+
+---
+
+## ARM — Adaptive Resource Management
+
+Every query is **scored before the LLM is called**. This is what makes Arwanos different from a standard chatbot wrapper.
+
+### Complexity Scoring (0–3 per dimension)
+
+| Dimension | What it measures |
+|---|---|
+| `search_need` | Does the query need live/external data? |
+| `context_need` | Does it need session history? |
+| `response_length` | How long should the answer be? |
+| `reasoning_steps` | How complex is the reasoning? |
+
+### Resource Budget (auto-assigned)
+
+| Level | Web Search | Context Items | Max Tokens |
+|---|---|---|---|
+| 0 — simple | ✗ | 0 | 640 |
+| 1 — moderate | ✗ | 3 | 960 |
+| 2 — detailed | ✓ 3 results | 8 | 1280 |
+| 3 — complex | ✓ 7 results | 15 | 1600 |
+
+A simple factual question uses almost no resources. A complex research question automatically triggers web search and longer output — without the user configuring anything.
 
 ---
 
@@ -57,42 +68,51 @@ Think of it like this:
 > but you can climb over it, and lift others with you.
 
 That's exactly how the **/lovely** + session-based syntax works.  
-It bypasses Llama's limitations in everything except the ultra-sensitive and ethically non-negotiable areas.
+It bypasses Llama's default restrictions in everything except the ultra-sensitive and ethically non-negotiable areas.
 
 ---
 
 # Key Features
 
-### ✔ Lovely & Streamline Response
-Switch between model-only knowledge and live enriched web context, and integrate both in the same session — which makes a huge difference.
+### Lovely & Streamline Response
+Switch between model-only knowledge and live enriched web context, and integrate both in the same session.
 
-### ✔ Lovelyq Mode (`/lovelyq`)
-A psychological-aware analysis engine.  
-Reads notes, extracts emotional patterns, and reflects behavior.
+### Lovelyq Mode (`/lovelyq`)
+A psychologically-aware analysis engine.  
+Reads your private journal, extracts emotional patterns, detects behavioral loops, and reflects them back with intent detection across 6 analytical lenses:
 
-### ✔ Unified Command Router
-A single architecture handling:
+| Query type | Analytical lens |
+|---|---|
+| "pattern", "trigger", "habit" | Behavioral Patterns |
+| "feel", "mood", "anxious" | Emotional Arc |
+| "avoid", "procrastinate" | Avoidance Patterns |
+| "contradict", "promise" | Contradictions |
+| "progress", "improve", "grow" | Growth Tracking |
+| "friend", "family", "alone" | Social / Relationship |
 
-- `/lovely` — enhanced response mode
-- `/lovelyq` — psychological analysis
-- `/tr` — translate English to Arabic
-- `/deep` — *(not enabled yet)*
-- `/webui` — start the web interface
-- `/hunt` — *(not enabled yet)*
-- Natural language queries
+### Deep Search (`/deep`)
+Forces a live web search regardless of ARM complexity score — use this when you know you need fresh, sourced information. Returns numbered results with titles, URLs, and a synthesized answer.
 
-### ✔ Hybrid UI
-Runs as:
+### Session RAG (`/rag`)
+Searches an imported JSON session using a keyword inverted index built at import time. Lookup is near-instant even for 200+ turn sessions — O(query keywords), not O(session size).
 
-- A modern Desktop App (CustomTkinter)
-- A full local Web Application (Flask) — integrated with my friend's open-source project
+### Unified Command Router
 
-### ✔ Behavioral-Predictive Layer
+| Command | Function |
+|---|---|
+| `/lovely <text>` | Enhanced emotional response mode |
+| `/lovelyq <query>` | Psychological journal analysis |
+| `/deep <question>` | Forced live web search |
+| `/rag <question>` | Search imported session |
+| `/ap <query>` | Arabic processing pipeline — full AR→EN→pipeline→AR sandwich |
+| `/tr <text>` | Translate English ↔ Arabic |
+| `/webui start` | Launch local web interface |
 
-Rona doesn't just answer questions —  
-she **understands how you're asking them**.
+### Hybrid UI
+Runs as a modern Desktop App (CustomTkinter) or a full local Web Application (Flask). All data stays on `127.0.0.1` — nothing is sent to external servers.
 
-With additional features in the web version, you can get analyses for a selected time period or weekly reports.
+### Bilingual — Arabic / English
+Arabic text is detected via a 15% character threshold and rendered with full BiDi/RTL support using `python-bidi`. Stray Arabic characters in English text do not trigger reversal.
 
 ---
 
@@ -102,7 +122,7 @@ With additional features in the web version, you can get analyses for a selected
 
 - **Python 3.10+**
 - **Ollama** installed and running — [ollama.ai](https://ollama.ai)
-- A local model (e.g. `llama3.1`)
+- A local model (e.g. `llama3:8b` or `llama3.1`)
 - Supported platforms: Linux, Windows, macOS
 
 ```bash
@@ -110,7 +130,6 @@ ollama pull llama3:8b
 # or
 ollama pull llama3.1
 ```
-You can edit to wherever model you want in line 6506 or 6512. 
 
 Verify Ollama is running:
 ```bash
@@ -118,79 +137,75 @@ ollama list       # lists your downloaded models
 ollama serve      # start manually if not already running
 ```
 
+> **GPU acceleration — important:**  
+> By default Ollama may not pick up your GPU. To make sure it runs on your NVIDIA (or other) GPU, start it like this:
+> ```bash
+> CUDA_VISIBLE_DEVICES=0 ollama serve > /dev/null 2>&1 &
+> ```
+> `CUDA_VISIBLE_DEVICES=0` tells the driver to use your first GPU. Change to `1`, `2`, etc. for a different card.  
+> Omit `> /dev/null 2>&1 &` if you want to see the Ollama logs in the terminal.  
+> On Windows, set the environment variable before starting: `set CUDA_VISIBLE_DEVICES=0` then `ollama serve`.
+
 ---
 
 ## System-Level Packages
 
-> These are **OS-level** dependencies — install them with your system package manager, **not** pip.  
-> Some features degrade gracefully if they are missing.
+> These are **OS-level** dependencies — install with your system package manager, **not** pip.  
+> Some features degrade gracefully if missing.
 
-### 🐧 Linux — Debian / Ubuntu / Mint
+### Linux — Debian / Ubuntu / Mint
 
 ```bash
-# Tkinter GUI (required)
 sudo apt install python3-tk
-
-# Audio playback fallback (used when pygame is not installed)
-sudo apt install pulseaudio-utils    # provides paplay
-sudo apt install alsa-utils           # alternative — provides aplay
-
-# Arabic / RTL text shaping (optional)
-sudo apt install libfribidi0
-
-# Java — only needed if you use language_tool_python
-sudo apt install default-jre
+sudo apt install pulseaudio-utils    # audio fallback (paplay)
+sudo apt install alsa-utils           # alternative audio (aplay)
+sudo apt install libfribidi0          # Arabic/RTL shaping
+sudo apt install default-jre          # only if using language_tool_python
 ```
 
-### 🐧 Linux — Fedora / RHEL / CentOS
+### Linux — Fedora / RHEL / CentOS
 
 ```bash
 sudo dnf install python3-tkinter pulseaudio-utils java-latest-openjdk
 ```
 
-### 🍎 macOS
+### macOS
 
 ```bash
-# Tkinter — if using Homebrew Python
 brew install python-tk
-
-# Audio fallback: built-in 'afplay', no extra steps needed
-
-# Java — only if using language_tool_python
-brew install --cask temurin
+brew install --cask temurin    # Java, only for language_tool_python
+# Audio: built-in afplay, no extra steps needed
 ```
 
-### 🪟 Windows
+### Windows
 
 ```
 ✔ Tkinter  — included in the standard python.org installer
-✔ Audio    — winsound is built-in, no extra install needed
-✔ Java     — download from https://adoptium.net (only for language_tool_python)
+✔ Audio    — winsound is built-in
+✔ Java     — https://adoptium.net (only for language_tool_python)
 
 ⚠ Tick "Add Python to PATH" during installation.
 ⚠ Run terminal as Administrator if pip gives permission errors.
 ```
 
-> **Audio player priority on all platforms:**  
-> `pygame` → `winsound` (Windows only) → `playsound` → `paplay` → `aplay` → `afplay`
+> **Audio player priority (all platforms):**  
+> `pygame` → `winsound` (Windows) → `playsound` → `paplay` → `aplay` → `afplay`
 
 ---
 
 ## Install Python Dependencies
 
-**Recommended: use a virtual environment first**
-
 ```bash
-# Create
+# Create virtual environment
 python -m venv .venv
 
 # Activate — Linux / macOS
 source .venv/bin/activate
 
-# Activate — Windows (CMD)
+# Activate — Windows CMD
 .venv\Scripts\activate.bat
 
-# Activate — Windows (PowerShell)
+# Activate — Windows PowerShell
 .venv\Scripts\Activate.ps1
 ```
 
@@ -202,75 +217,83 @@ pip install -r requirements.txt
 
 ### Optional extras
 
-| Package | What it enables | Install |
-|---|---|---|
-| `pygame` | Cross-platform audio (dragon sounds) | `pip install pygame` |
-| `playsound` | Lightweight audio fallback | `pip install playsound` |
-| `chromadb` | Vector memory / RAG storage | `pip install chromadb` |
-| `spacy` | NLP / language detection | `pip install spacy` |
-| `nltk` | Tokenization | `pip install nltk` |
-| `pdfplumber` | Import PDF files into sessions | `pip install pdfplumber` |
-| `language_tool_python` | Grammar check (needs Java 8+) | `pip install language_tool_python` |
+| Package | What it enables |
+|---|---|
+| `pygame` | Cross-platform audio (dragon sounds) |
+| `playsound` | Lightweight audio fallback |
+| `chromadb` | Vector memory / RAG storage |
+| `spacy` | NLP / language detection |
+| `nltk` | Tokenization |
+| `pdfplumber` | Import PDF files into sessions |
+| `language_tool_python` | Grammar check (needs Java 8+) |
 
 ---
 
 ## Configuration
 
-Copy the example config and edit it to match your setup:
+Open `config.json` in the root folder and edit it directly:
 
-```bash
-cp config.example.json config.json
+```json
+{
+  "model_name": "llama3:8b-instruct-q4_K_M",
+  "ollama_settings": {
+    "temperature": 0.2
+  }
+}
 ```
 
-Key fields in `config.json`:
+**To change the model** — replace the `model_name` value with any model you have pulled in Ollama:
 
-| Field | Description |
+```json
+"model_name": "llama3.1:8b"
+"model_name": "mistral:7b"
+"model_name": "gemma2:9b"
+"model_name": "qwen2.5:7b"
+"model_name": "deepseek-r1:8b"
+```
+
+Just run `ollama list` to see all models available on your machine, pick one, paste the name in, save the file, and restart Arwanos.
+
+```bash
+ollama list          # see what you have
+ollama pull mistral  # pull a new one if needed
+```
+
+**To change the temperature** — controls how creative vs focused the responses are:
+
+| Value | Behavior |
 |---|---|
-| `MODEL_NAME` | Ollama model name (e.g. `llama3:8b`) |
-| `OLLAMA_HOST` | API URL (default: `http://localhost:11434`) |
-| `WEB_PORT` | Flask web UI port (default: `5005`) |
+| `0.1` | Very focused, deterministic |
+| `0.2` | Default — balanced *(recommended)* |
+| `0.5` | More creative, varied responses |
+| `0.8` | Very creative, less predictable |
 
 ---
 
-## 🔊 Sound Toggle
+## Sound Toggle
 
-The dragon animation sound (played on startup and when clicking the 🐉 button) is **muted by default**.
-
-To control it, open `Rona_v9_5.py` and find this line near the **top of the file** (around line 56–67):
+The dragon animation sound is **muted by default**.  
+Find this near the top of `Arwanos_v9_8.py`:
 
 ```python
-RONA_SOUND_ENABLED = 1   # 0 = play | 1 = mute  ← edit this line
+ARWANOS_SOUND_ENABLED = 1   # 0 = play | 1 = mute
 ```
 
 | Value | Meaning |
-|-------|---------|
-| `0`   | 🔊 Sound **ON** — dragon roar plays on startup and on the 🐉 button |
-| `1`   | 🔇 Sound **OFF** — completely silent *(default)* |
+|---|---|
+| `0` | Sound ON — dragon roar plays on startup and on the dragon button |
+| `1` | Sound OFF — completely silent *(default)* |
 
-**To enable sound:** change `1` → `0`
+---
 
-```python
-RONA_SOUND_ENABLED = 0   # sound is now ON
-```
-
-**To mute:** change back to `1`
-
-```python
-RONA_SOUND_ENABLED = 1   # sound is OFF (muted)
-```
-
-> **Note:** Audio playback requires at least one audio backend.
-> See the [Optional extras](#optional-extras) table — `pygame` is the recommended package.
-
-
-## Run Rona
+## Run Arwanos
 
 ```bash
-python Rona_v9_4.py
+python Arwanos_v9_8.py
 ```
 
-Rona will open in desktop mode.  
-You can also access the web UI by clicking **Open Predictive** inside the app, or going to:
+Arwanos opens in desktop mode.  
+Access the web UI by clicking **Open Predictive** inside the app, or directly:
 
 ```
 http://127.0.0.1:5005/renderer
@@ -278,17 +301,11 @@ http://127.0.0.1:5005/renderer
 
 ---
 
-## 🪟 Build Rona.exe (Windows)
+## Build Arwanos.exe (Windows)
 
-To package Rona as a standalone Windows executable (`Rona.exe`):
-
-**1. Install PyInstaller:**
 ```bash
 pip install pyinstaller
-```
 
-**2. Run the build script:**
-```bash
 # Folder build — faster startup (recommended)
 python build.py
 
@@ -296,92 +313,120 @@ python build.py
 python build.py --onefile
 ```
 
-Output will be in `dist/Rona/Rona.exe`.  
-The icon (`rona_icon.ico`) and all assets are bundled automatically.
+Output: `dist/Arwanos/Arwanos.exe`  
+The icon (`Arwanos_icon.ico`) and all assets are bundled automatically.
 
-> **Note:** Ollama must still be installed and running separately on the target machine — it cannot be bundled into the `.exe`.
+> Ollama must still be installed and running separately on the target machine.
 
 ---
 
 # Usage
 
-## 💬 Standard Chat
-Just type.  
-Rona will automatically use:
+## Standard Chat
 
-- AI model
-- Web context
-- Session history
+Just type. Arwanos will automatically:
+- Score the query with ARM
+- Decide whether to search the web
+- Pull session context if relevant
+- Return a response scaled to the query's complexity
 
-> **Note on training data:** The JSON training system still requires normalization before it works across different JSON formats. For now, use the session files that Rona itself creates — it works great within those.
+> `what is` → brief answer + web sources  
+> `give me` → detailed information  
+> `compare`, `how to`, `fact` → structured, in-depth response
 
 ---
 
-## 💗 Lovely Mode
+## Psychological Analysis
 
-```
-/lovely <your thought>   ← fun mode or jailbreak ^^
-```
-
-For psychological analysis:
 ```
 /lovelyq <your query>
 ```
 
 Example:
 ```
-/lovelyq I want to know what I should do about the situation I was in on 1/Jun/26
+/lovelyq what patterns do I keep repeating when I'm stressed?
 ```
 
-This activates the psychological analysis engine. Rona will:
+Arwanos will:
+- Read your `psychoanalytical.json` journal
+- Extract entries relevant to your question
+- Detect emotional shifts, behavioral contradictions, and subconscious patterns
+- Respond like a close friend who has read your diary
 
-- Detect emotional shifts
-- Highlight behavioral contradictions
-- Expose subconscious patterns
-- Provide grounded advice
-- Mirror your mindset in a human-like way
+For conversational mode (talks *with* you):
+```
+/lovely <your thought>
+```
+
+---
+
+## Arabic Processing Mode (`/ap`)
+
+`/ap` is a full **AR → EN → pipeline → AR** translation sandwich.  
+Write your query in Arabic — Arwanos translates it to English using `qwen2.5:7b`, runs it through the chosen pipeline (`llama3:8b`), then translates the answer back to Arabic.
+
+```
+/ap <query>
+```
+
+You can also combine it with any other pipeline using a flag:
+
+| Command | What it runs |
+|---|---|
+| `/ap <query>` | Normal RAG pipeline |
+| `/ap -lo <query>` | Lovely companion mode |
+| `/ap -lovelyq <query>` | Journal analysis |
+| `/ap -rag <query>` | RAG session search |
+| `/ap -deep <query>` | Deep live web search |
+
+
+Arwanos translates the Arabic to English, does a live web search, synthesizes the results, then returns the answer in Arabic.
+
+> **Requires:** `qwen2.5:7b` pulled in Ollama alongside your main model.
+> ```bash
+> ollama pull qwen2.5:7b
+> ```
 
 ---
 
 # A Note on Safety
 
-I built this system to help with my studies, to analyze myself, and to play around with a few things related to jailbreaking — but Rona will **not** operate in extremely sensitive areas (e.g., nuclear, WMD, or other real-world danger zones).
+Arwanos will **not** operate in extremely sensitive areas (nuclear, WMD, or other real-world danger zones).
 
-She *will* help you with:
-
-- Organizing files within the session system to improve the study experience
-- Psychological analysis, pattern recognition, and identifying bad habits
-
-Rona stays on the ethical side and supports security researchers and students.  
-It's distinctive in how it delivers answers — key symbolic words carry weight:
-
-- `what is` → brief, concise answer + sources from web crawling
-- `give me` → detailed information
-- `compare between`, `fact`, `how` → structured, in-depth responses
-- Plus full natural language support
+It supports:
+- Security researchers and students
+- Psychological analysis and self-reflection
+- Study session organization and RAG-based learning
 
 ---
 
+# What Makes Arwanos Different
+
+| Feature | Arwanos | Typical chatbot |
+|---|---|---|
+| Privacy | 100% local, no cloud | Cloud API, data sent to servers |
+| Web search | ARM-adaptive — only when needed | Always on or always off |
+| Psychoanalysis | Reads private journal, intent-aware | No personal data |
+| Session RAG | Keyword-indexed, near-instant lookup | Full re-scan every query |
+| Bilingual | Native Arabic BiDi rendering | Basic Unicode |
+| Resource control | Per-query ARM budget | Fixed context / token limit |
+
 ---
 
-# ⚠️ Common Issues & Fixes
+# Common Issues
 
-## `ModuleNotFoundError: No module named 'customtkinter'` (or any other module)
+## `ModuleNotFoundError` (any module)
 
-This means the dependencies were installed into a **different Python environment** than the one being used to run the app.  
-The fix is to always use a **virtual environment**:
+Always use a virtual environment:
 
 ### Windows (PowerShell)
 
 ```powershell
-# If PowerShell blocks scripts, run this ONCE first:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# Then:
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python Rona_v9_4.py
+python Arwanos_v9_8.py
 ```
 
 ### Windows (CMD)
@@ -390,7 +435,7 @@ python Rona_v9_4.py
 python -m venv .venv
 .venv\Scripts\activate.bat
 pip install -r requirements.txt
-python Rona_v9_4.py
+python Arwanos_v9_8.py
 ```
 
 ### Linux / macOS
@@ -399,24 +444,16 @@ python Rona_v9_4.py
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python Rona_v9_4.py
+python Arwanos_v9_8.py
 ```
-
-> **Rule:** Always activate the virtual environment before running `pip install` or `python Rona_v9_4.py`.  
-> You'll see `(.venv)` at the start of your terminal prompt when it's active.
 
 ---
 
 ## Ollama not found / model not responding
 
 ```bash
-# Make sure Ollama is running
 ollama serve
-
-# Check your model is downloaded
 ollama list
-
-# Pull a model if missing
 ollama pull llama3.1
 ```
 
@@ -424,8 +461,7 @@ ollama pull llama3.1
 
 # Enjoy Exploring the Potential
 
-This is not just a chatbot.  
-It's a blueprint for:
+This is not just a chatbot. It's a blueprint for:
 
 - AI behavioral analysis
 - Psychological context infusion
@@ -434,13 +470,13 @@ It's a blueprint for:
 - Human-aware Transmitted AI systems
 - Natural language processing experiments
 
-If you want more clarification, deeper breakdowns, or advanced discussion — feel free to reach me.
+If you want more clarification, deeper breakdowns, or advanced discussion — reach out.
 
 ---
 
-👨‍💻 **Author:** GMM  
-🔗 **GitHub:** [GMMB1](https://github.com/GMMB1)  
-☕ **Support:** [ko-fi.com/ghostman77506](https://ko-fi.com/ghostman77506)
+**Author:** GMM  
+**GitHub:** [GMMB1](https://github.com/GMMB1)  
+**Support:** [ko-fi.com/ghostman77506](https://ko-fi.com/ghostman77506)
 
-📖 **Learn more about Transmitted AI & agent technology:**  
+**Learn more about Transmitted AI:**  
 [Transmitted AI with Psychological Awareness](https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f)

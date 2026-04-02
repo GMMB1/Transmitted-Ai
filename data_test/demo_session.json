@@ -1,0 +1,58 @@
+[
+  {
+    "role": "user",
+    "content": "Can you explain how context windows work in large language models?"
+  },
+  {
+    "role": "assistant",
+    "content": "A context window is the maximum amount of text (measured in tokens) that a model can process at once — both what you send in and what it generates back. Think of it as the model's working memory for a single conversation. When the conversation grows beyond the context window, older messages are dropped or summarized. Larger context windows let the model hold more conversation history and longer documents in memory, which improves coherence and reduces hallucination on long tasks."
+  },
+  {
+    "role": "user",
+    "content": "What is RAG — retrieval augmented generation?"
+  },
+  {
+    "role": "assistant",
+    "content": "RAG is a technique where you retrieve relevant documents from an external knowledge base before generating a response. Instead of relying solely on what the model learned during training, you first search a database for content that matches the user's query, then inject that content into the model's context window as additional grounding. The model uses that retrieved context to produce a more accurate, up-to-date answer. It's especially useful for domain-specific knowledge or information that changes frequently — like internal documentation, recent events, or personal notes."
+  },
+  {
+    "role": "user",
+    "content": "How does vector similarity search work for RAG?"
+  },
+  {
+    "role": "assistant",
+    "content": "Vector similarity search works by turning text into numerical vectors (embeddings) that capture semantic meaning. When you store documents, you convert each one into a vector and save it in a vector database. At query time, you convert the user's question into a vector too. Then you measure the distance (usually cosine similarity) between the query vector and all document vectors — closer vectors mean more semantically similar content. You retrieve the top-K closest documents and pass them to the LLM as context. The key insight is that two pieces of text that mean similar things will have vectors that are close together, even if they use different words."
+  },
+  {
+    "role": "user",
+    "content": "What is ChromaDB and why use it?"
+  },
+  {
+    "role": "assistant",
+    "content": "ChromaDB is an open-source embedding database designed specifically for AI applications. It stores embeddings alongside their metadata and original text, and provides fast similarity search. Key advantages: it runs locally with no infrastructure setup, has a simple Python API, supports persistence to disk, and integrates easily with embedding models like sentence-transformers or OpenAI embeddings. For a local AI application, ChromaDB is a natural choice because it requires no server, no cloud, and no paid API — all the RAG machinery runs on your own machine."
+  },
+  {
+    "role": "user",
+    "content": "What are some common pitfalls when building a RAG system?"
+  },
+  {
+    "role": "assistant",
+    "content": "The most common pitfalls: (1) Chunk size too large — if your document chunks are huge, the retrieved context is diluted with irrelevant content. (2) Chunk size too small — tiny chunks lose the surrounding context needed to understand them. (3) No reranking — top-K similarity doesn't mean top-K relevance; a reranker improves precision. (4) Ignoring query preprocessing — noisy or vague queries return noisy results; cleaning and expanding queries helps. (5) Context stuffing — injecting too many retrieved documents overwhelms the model and degrades output quality. (6) Stale index — if your source documents update but you don't re-embed them, the RAG answers go stale. The sweet spot is usually 256-512 token chunks with 10-20% overlap and 3-5 retrieved results."
+  },
+  {
+    "role": "user",
+    "content": "Explain the difference between fine-tuning and RAG for adding knowledge to an LLM"
+  },
+  {
+    "role": "assistant",
+    "content": "Fine-tuning bakes knowledge into the model's weights by training on new data — it changes what the model knows permanently. RAG retrieves and injects knowledge at inference time without changing the model. The trade-offs: Fine-tuning is better for changing the model's style, tone, or reasoning patterns. It's expensive (requires GPU time), slow to update, and can cause catastrophic forgetting of prior knowledge. RAG is better for factual knowledge that changes over time or is too large to train on. It's cheap to update (just re-index documents), transparent (you can see what was retrieved), and doesn't degrade the base model. In practice, most production systems use RAG for knowledge and fine-tuning only when they need to change the model's behavior or persona."
+  },
+  {
+    "role": "user",
+    "content": "What is prompt engineering and what are the key techniques?"
+  },
+  {
+    "role": "assistant",
+    "content": "Prompt engineering is the practice of crafting input text to reliably guide an LLM toward the desired output. Key techniques: (1) Role prompting — tell the model who it is ('You are an expert in X'). (2) Few-shot examples — show the model 2-5 examples of the input/output format you want before your actual query. (3) Chain-of-thought — ask the model to reason step by step ('Think through this carefully, then answer'). (4) Structured output constraints — specify the exact format you need ('Return JSON with keys: title, summary, tags'). (5) Negative constraints — tell the model what not to do, not just what to do. (6) Temperature control — lower temperature (0.1-0.3) for factual tasks, higher (0.7-1.0) for creative tasks. The most important principle: be specific. Vague prompts produce vague outputs."
+  }
+]

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "note_001",
+    "title": "Arwanos Architecture Overview",
+    "date": "2026-01-10",
+    "content": "Arwanos uses a 3-tier architecture: (1) UI layer — CustomTkinter desktop GUI with markdown rendering and real-time streaming. (2) Agent layer — async command router with ARM (Adaptive Resource Manager) that profiles queries and assigns compute budgets. (3) Data layer — ChromaDB vector store for RAG, psychoanalytical.json for journal analysis, conversation history for context. The ARM system classifies every query into resource profiles 0-3, adjusting context window, token limits, and search depth accordingly.",
+    "tags": ["architecture", "arwanos", "overview"]
+  },
+  {
+    "id": "note_002",
+    "title": "ARM Resource Profiles",
+    "date": "2026-01-10",
+    "content": "Profile 0 (micro): greetings, simple questions. num_ctx=512, num_predict=640. Profile 1 (standard): normal conversation. num_ctx=2048, num_predict=960. Profile 2 (extended): complex reasoning, code analysis. num_ctx=4096, num_predict=1280. Profile 3 (deep): web search, RAG, full journal analysis. num_ctx=8192, num_predict=1600. The ARM prevents resource waste on simple queries while ensuring deep tasks have full compute available.",
+    "tags": ["arm", "resources", "performance"]
+  },
+  {
+    "id": "note_003",
+    "title": "LovelyQ Feature",
+    "date": "2026-01-15",
+    "content": "The /lovelyq command performs psychoanalytical analysis of the user's journal entries. It uses Python-first preprocessing: keyword extraction from the question → sentence-level matching against journal entries → focused context assembly (~2000 tokens) → single LLM call. Intent detection classifies the question into 6 categories: behavioral patterns, emotional state, avoidance behavior, contradictions, growth areas, or general reflection. Custom response format can be saved via '/lovelyq set <instructions>'.",
+    "tags": ["lovelyq", "analysis", "features"]
+  },
+  {
+    "id": "note_004",
+    "title": "Key Design Principles",
+    "date": "2026-01-20",
+    "content": "1. Local-first: all processing runs on-device, no cloud required. 2. Privacy: journal data never leaves the machine. 3. Honest companion: Arwanos is designed to be honest, not just kind — it names patterns directly. 4. Adaptive: the ARM system scales resource usage to the task. 5. Extensible: custom prompts, importable sessions, pluggable data sources. 6. Human-centered: the companion relationship is the core feature, not the technology.",
+    "tags": ["design", "principles", "philosophy"]
+  }
+]
