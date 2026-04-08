@@ -1,0 +1,77 @@
+[
+  {
+    "id": "habit_demo_001",
+    "title": "Morning Run",
+    "triggerType": "build",
+    "color": "#e74c3c",
+    "dailyLogs": [
+      {"date": "2026-04-07", "status": "success"},
+      {"date": "2026-04-06", "status": "success"},
+      {"date": "2026-04-05", "status": "success"},
+      {"date": "2026-04-04", "status": "failed"},
+      {"date": "2026-04-03", "status": "success"},
+      {"date": "2026-04-02", "status": "success"},
+      {"date": "2026-04-01", "status": "success"}
+    ]
+  },
+  {
+    "id": "habit_demo_002",
+    "title": "Read 20 Pages",
+    "triggerType": "build",
+    "color": "#3498db",
+    "dailyLogs": [
+      {"date": "2026-04-07", "status": "success"},
+      {"date": "2026-04-06", "status": "success"},
+      {"date": "2026-04-05", "status": "empty"},
+      {"date": "2026-04-04", "status": "success"},
+      {"date": "2026-04-03", "status": "success"},
+      {"date": "2026-04-02", "status": "success"},
+      {"date": "2026-04-01", "status": "success"}
+    ]
+  },
+  {
+    "id": "habit_demo_003",
+    "title": "No Social Media",
+    "triggerType": "quit",
+    "color": "#9b59b6",
+    "dailyLogs": [
+      {"date": "2026-04-07", "status": "success"},
+      {"date": "2026-04-06", "status": "success"},
+      {"date": "2026-04-05", "status": "success"},
+      {"date": "2026-04-04", "status": "success"},
+      {"date": "2026-04-03", "status": "failed"},
+      {"date": "2026-04-02", "status": "success"},
+      {"date": "2026-04-01", "status": "success"}
+    ]
+  },
+  {
+    "id": "habit_demo_004",
+    "title": "Drink 2L Water",
+    "triggerType": "build",
+    "color": "#1abc9c",
+    "dailyLogs": [
+      {"date": "2026-04-07", "status": "success"},
+      {"date": "2026-04-06", "status": "success"},
+      {"date": "2026-04-05", "status": "success"},
+      {"date": "2026-04-04", "status": "success"},
+      {"date": "2026-04-03", "status": "success"},
+      {"date": "2026-04-02", "status": "success"},
+      {"date": "2026-04-01", "status": "success"}
+    ]
+  },
+  {
+    "id": "habit_demo_005",
+    "title": "No Junk Food",
+    "triggerType": "quit",
+    "color": "#f39c12",
+    "dailyLogs": [
+      {"date": "2026-04-07", "status": "success"},
+      {"date": "2026-04-06", "status": "success"},
+      {"date": "2026-04-05", "status": "empty"},
+      {"date": "2026-04-04", "status": "success"},
+      {"date": "2026-04-03", "status": "success"},
+      {"date": "2026-04-02", "status": "failed"},
+      {"date": "2026-04-01", "status": "success"}
+    ]
+  }
+]

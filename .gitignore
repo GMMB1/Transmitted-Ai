@@ -40,6 +40,7 @@ backups/
 
 # Personal documents / PDFs
 assets/*.pdf
+pdf/
 
 # Personal debug/build notes
 BUILD_ISSUES.txt

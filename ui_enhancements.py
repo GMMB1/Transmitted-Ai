@@ -221,7 +221,7 @@ def add_top_controls(app: Any) -> None:
     try:
         btn = ctk.CTkButton(
             app.web_controls, text="Clear Chat", command=clear_cmd, width=120,
-            fg_color="#0b3770", hover_color="#0f4a9e",
+            height=36, fg_color="#0b3770", hover_color="#0f4a9e",
         )
         btn.pack(side="left", padx=6)
     except Exception:

@@ -31,7 +31,7 @@ const Storage = {
                 }));
                 console.log('Journals loaded from Flask API (psychoanalytical.json)');
             }
-            
+
             // Load other data from localStorage
             const localData = localStorage.getItem('daily_productivity_full_data');
             if (localData) {
@@ -44,6 +44,15 @@ const Storage = {
                 this.favorites = data.favorites || [];
                 this.habits = data.habits || [];
                 this.settings = data.settings || { theme: 'default' };
+            }
+
+            // Override habits from Flask API so demo/personal folder switch is respected.
+            // 204 = file absent on server → keep localStorage copy (personal first-run compat).
+            // 200 = use API data (could be demo fake data or personal habits.json).
+            const apiHabits = await this.fetchHabitsFromAPI();
+            if (apiHabits !== null) {
+                this.habits = apiHabits;
+                console.log('Habits loaded from Flask API (habits.json)');
             }
         } catch (error) {
             console.error('Error loading data:', error);
@@ -65,6 +74,34 @@ const Storage = {
             console.warn('Could not fetch from API, falling back to localStorage');
         }
         return null;
+    },
+
+    /**
+     * Fetch habits from the active data folder (personal or demo).
+     * 204 → file absent, caller keeps localStorage copy.
+     * 200 → use returned array (may be empty for fresh demo folder).
+     */
+    async fetchHabitsFromAPI() {
+        try {
+            const response = await fetch('/api/habits');
+            if (response.status === 204) return null;
+            if (response.ok) {
+                const data = await response.json();
+                return Array.isArray(data) ? data : null;
+            }
+        } catch (e) { /* Flask not running */ }
+        return null;
+    },
+
+    /** Persist habits to the active data folder (fire-and-forget). */
+    async saveHabitsToAPI() {
+        try {
+            await fetch('/api/habits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.habits)
+            });
+        } catch (e) { /* silent — localStorage is still the fallback */ }
     },
 
     /**
@@ -481,6 +518,7 @@ const Storage = {
     addHabit(habit) {
         this.habits.push(habit);
         this.save();
+        this.saveHabitsToAPI();
     },
 
     updateHabit(id, updatedHabit) {
@@ -488,6 +526,7 @@ const Storage = {
         if (index !== -1) {
             this.habits[index] = { ...this.habits[index], ...updatedHabit };
             this.save();
+            this.saveHabitsToAPI();
         }
     },
 
@@ -496,6 +535,7 @@ const Storage = {
         if (index !== -1) {
             this.habits.splice(index, 1);
             this.save();
+            this.saveHabitsToAPI();
         }
     },
 
@@ -540,4 +580,48 @@ const Storage = {
 
 // Make Storage globally available
 window.Storage = Storage;
+
+/**
+ * Poll /api/data-mode every 2 seconds.
+ * When the version counter changes (user switched Personal ↔ Demo in CTk settings),
+ * reload habits from the API and re-render the habits board if it is visible.
+ */
+(function startDataModeWatcher() {
+    let _lastVersion = null;
+
+    async function _checkMode() {
+        try {
+            const resp = await fetch('/api/data-mode');
+            if (!resp.ok) return;
+            const { version } = await resp.json();
+
+            if (_lastVersion === null) {
+                _lastVersion = version;   // first read — baseline, no reload needed
+                return;
+            }
+
+            if (version !== _lastVersion) {
+                _lastVersion = version;
+
+                // Re-fetch habits from the newly active data folder
+                const habitsResp = await fetch('/api/habits');
+                if (habitsResp.status === 204) {
+                    Storage.habits = [];
+                } else if (habitsResp.ok) {
+                    const data = await habitsResp.json();
+                    if (Array.isArray(data)) Storage.habits = data;
+                }
+
+                // Re-render the habits board if the Habits page is currently visible
+                if (typeof HabitsManager !== 'undefined' && HabitsManager.board) {
+                    HabitsManager.renderHabits();
+                }
+
+                console.log('[Arwanos] Data mode changed — habits reloaded.');
+            }
+        } catch (_) { /* Flask not reachable — ignore */ }
+    }
+
+    setInterval(_checkMode, 2000);
+})();
 

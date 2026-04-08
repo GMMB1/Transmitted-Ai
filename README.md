@@ -77,7 +77,7 @@ It bypasses Llama's default restrictions in everything except the ultra-sensitiv
 ### Lovely & Streamline Response
 Switch between model-only knowledge and live enriched web context, and integrate both in the same session.
 
-### Lovelyq Mode (`/lovelyq`)
+### Analyze Mode (`/analyze`)
 A psychologically-aware analysis engine.  
 Reads your private journal, extracts emotional patterns, detects behavioral loops, and reflects them back with intent detection across 6 analytical lenses:
 
@@ -101,7 +101,7 @@ Searches an imported JSON session using a keyword inverted index built at import
 | Command | Function |
 |---|---|
 | `/lovely <text>` | Enhanced emotional response mode |
-| `/lovelyq <query>` | Psychological journal analysis |
+| `/analyze <query>` | Psychological journal analysis |
 | `/deep <question>` | Forced live web search |
 | `/rag <question>` | Search imported session |
 | `/ap <query>` | Arabic processing pipeline — full AR→EN→pipeline→AR sandwich |
@@ -339,12 +339,12 @@ Just type. Arwanos will automatically:
 ## Psychological Analysis
 
 ```
-/lovelyq <your query>
+/analyze <your query>
 ```
 
 Example:
 ```
-/lovelyq what patterns do I keep repeating when I'm stressed?
+/analyze what patterns do I keep repeating when I'm stressed?
 ```
 
 Arwanos will:

@@ -200,10 +200,10 @@ const App = {
         overlay.id = 'busy-overlay';
         overlay.innerHTML = `
             <div class="custom-alert-box" style="text-align: center;">
-                <div style="font-size: 3rem; margin-bottom: 20px;">🤖</div>
-                <h3>Rona is busy...</h3>
-                <p>Analyzing period ${start} to ${end}...</p>
-                <img src="assets/loading.gif" alt="Loading..." style="max-width: 100px; margin: 20px auto; display: block;">
+                <img src="assets/loading.gif" alt="Loading..."
+                     style="width: 120px; height: 120px; object-fit: contain; display: block; margin: 0 auto 16px;">
+                <div class="custom-alert-title">Analyzing...</div>
+                <div class="custom-alert-message">${start} → ${end}</div>
             </div>
         `;
         document.body.appendChild(overlay);

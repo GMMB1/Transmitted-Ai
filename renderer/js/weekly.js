@@ -710,11 +710,10 @@ const Weekly = {
         overlay.id = 'busy-overlay';
         overlay.innerHTML = `
             <div class="custom-alert-box" style="text-align: center;">
-                <div style="font-size: 3rem; margin-bottom: 20px;">🤖</div>
-                <h3>Rona is busy...</h3>
-                <p>Analyzing your week...</p>
-                <!-- Placeholder for User's GIF -->
-                <img src="assets/loading.gif" alt="Loading..." style="max-width: 100px; margin: 20px auto; display: block;">
+                <img src="assets/loading.gif" alt="Loading..."
+                     style="width: 120px; height: 120px; object-fit: contain; display: block; margin: 0 auto 16px;">
+                <div class="custom-alert-title">Generating Report...</div>
+                <div class="custom-alert-message">Analyzing your week</div>
             </div>
         `;
         document.body.appendChild(overlay);
