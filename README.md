@@ -67,14 +67,14 @@ Think of it like this:
 >  
 > but you can climb over it, and lift others with you.
 
-That's exactly how the **/lovely** + session-based syntax works.  
+That's exactly how the **/lo** + session-based syntax works.  
 It bypasses Llama's default restrictions in everything except the ultra-sensitive and ethically non-negotiable areas.
 
 ---
 
 # Key Features
 
-### Lovely & Streamline Response
+### Lo & Streamline Response
 Switch between model-only knowledge and live enriched web context, and integrate both in the same session.
 
 ### Analyze Mode (`/analyze`)
@@ -100,7 +100,7 @@ Searches an imported JSON session using a keyword inverted index built at import
 
 | Command | Function |
 |---|---|
-| `/lovely <text>` | Enhanced emotional response mode |
+| `/lo <text>` | Enhanced emotional response mode |
 | `/analyze <query>` | Psychological journal analysis |
 | `/deep <question>` | Forced live web search |
 | `/rag <question>` | Search imported session |
@@ -355,7 +355,7 @@ Arwanos will:
 
 For conversational mode (talks *with* you):
 ```
-/lovely <your thought>
+/lo <your thought>
 ```
 
 ---
@@ -374,8 +374,8 @@ You can also combine it with any other pipeline using a flag:
 | Command | What it runs |
 |---|---|
 | `/ap <query>` | Normal RAG pipeline |
-| `/ap -lo <query>` | Lovely companion mode |
-| `/ap -lovelyq <query>` | Journal analysis |
+| `/ap -lo <query>` | Lo companion mode |
+| `/ap -analyze <query>` | Journal analysis |
 | `/ap -rag <query>` | RAG session search |
 | `/ap -deep <query>` | Deep live web search |
 
