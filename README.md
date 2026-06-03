@@ -514,15 +514,115 @@ Depth also scales with session count: early sessions establish baseline awarenes
 
 Three public datasets are embedded and locally indexed:
 
-| Dataset | Source | Entries |
+| Dataset | Hugging Face ID | Entries |
 |---|---|---|
-| **CounselChat** | Licensed therapist Q&A (counselchat.com) | 2,749 |
-| **Mental Health Counseling Conversations** | Counselor–client pairs | 3,508 |
-| **ESConv** (ACL 2021) | Emotional support multi-turn conversations | 1,300 |
+| **CounselChat** | `nbertagnolli/counsel-chat` | 2,749 |
+| **Mental Health Counseling Conversations** | `Amod/mental_health_counseling_conversations` | 3,508 |
+| **ESConv** (ACL 2021) | `thu-coai/esconv` | 1,300 |
 
 **Total: 7,557 professional examples** — keyword-searched at session start and at insight generation, matched to your specific patterns, not used as generic templates.
 
-All datasets are stored locally in `data/` — no external API calls.
+These datasets are **not included in the repository** (they belong in your local `data/` folder which is gitignored for privacy). Use the setup script below to download and index them automatically.
+
+---
+
+## Dataset Setup — One Command
+
+> **This step is required for the Mental State Monitor to work.**  
+> Without `data/psych_datasets_index.json`, the ML pipeline has no professional reference material.
+
+### Step 1 — Install the datasets library
+
+```bash
+pip install datasets
+```
+
+> Already included if you ran `pip install -r requirements.txt` — the `datasets` package from Hugging Face is listed there.
+
+### Step 2 — Run the build script
+
+```bash
+python build_datasets.py
+```
+
+That's it. The script will:
+
+1. Download **CounselChat** from `nbertagnolli/counsel-chat`
+2. Download **Mental Health Counseling Conversations** from `Amod/mental_health_counseling_conversations`
+3. Download **ESConv** from `thu-coai/esconv`
+4. Process all three into a unified keyword-indexed format
+5. Save the result as `data/psych_datasets_index.json`
+
+Expected output:
+
+```
+Downloading CounselChat (nbertagnolli/counsel-chat)…
+  ✓ 2749 entries
+Downloading Mental Health Counseling Conversations…
+  ✓ 3508 entries
+Downloading ESConv (thu-coai/esconv)…
+  ✓ 1300 entries
+
+✅ Done — 7,557 total entries
+   Saved → /your/path/Arwanos-v10/data/psych_datasets_index.json
+
+Breakdown by source:
+   counsel_chat                          2749
+   mental_health_counseling              3508
+   esconv                                1300
+```
+
+> **No account or API key required** — all three datasets are publicly available on Hugging Face.  
+> The download requires ~50 MB of disk space and a one-time internet connection.  
+> After the script completes, the Monitor works **100% offline**.
+
+### What the index looks like
+
+Each entry in `psych_datasets_index.json` follows this format:
+
+```json
+{
+  "source": "counsel_chat",
+  "topic": "depression",
+  "context": "The client's question or situation...",
+  "response": "The therapist's or counselor's response...",
+  "keywords": ["anxiety", "depression", "patterns", "avoidance", "..."]
+}
+```
+
+The Monitor searches this index using your psychological profile keywords — it never uses these as generic templates. Every example pulled is matched specifically to your current patterns and session inferences.
+
+---
+
+## How the Web UI Combines Everything
+
+When you click **🧭 Monitor** in the web UI sidebar:
+
+```
+Your journal + habits history
+         ↓
+   LLM builds your psychological profile
+         ↓
+   Profile keywords → search psych_datasets_index.json
+         ↓
+   3 most relevant professional examples per theme (Source C)
+         ↓
+   LLM generates questions using: your data + past sessions + professional examples
+         ↓
+   You answer in the browser
+         ↓
+   Answers cross-referenced against your full journal history
+         ↓
+   Dataset searched again using inference keywords (not raw answers)
+         ↓
+   Final insights: 4 paragraphs + one actionable step
+         ↓
+   Saved to data/monitor_sessions.json → fed into next session's tuning
+```
+
+The datasets power **Source C** in this pipeline — they provide the professional therapeutic vocabulary and response patterns that the LLM uses to frame questions and enrich insights. Your personal data never leaves your machine.
+
+All datasets are stored locally in `data/` — no external API calls after setup.
 
 ---
 

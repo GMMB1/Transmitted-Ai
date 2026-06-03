@@ -22,6 +22,9 @@ python-bidi>=0.4.2
 psutil>=5.9.0
 packaging>=23.0
 
+# ── ML / datasets (Mental State Monitor pipeline) ────────────────────────────
+datasets>=2.18.0           # download psychology datasets — run: python build_datasets.py
+
 # ── Optional — enable extra features ─────────────────────────────────────────
 # chromadb>=0.4.22       # vector memory / RAG storage
 # pdfplumber             # import PDF files into sessions
