@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mental State Monitor — Arwanos</title>
+    <link rel="stylesheet" href="/renderer/css/styles.css">
+    <style>
+        /* ── Monitor Layout ── */
+        body { background: var(--back-primary-color); }
+
+        .mon-header {
+            position: sticky; top: 0; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px;
+            background: var(--container-color);
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(8px);
+        }
+        .mon-header h1 { font-size: 1.15rem; margin: 0; }
+
+        .mon-layout {
+            display: flex; gap: 20px;
+            max-width: 1200px; margin: 0 auto;
+            padding: 24px 20px;
+            min-height: calc(100vh - 64px);
+        }
+        .mon-main  { flex: 1; min-width: 0; }
+        .mon-side  { width: 290px; flex-shrink: 0; }
+
+        /* ── Cards ── */
+        .mon-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            padding: 28px;
+            margin-bottom: 16px;
+        }
+
+        /* ── Welcome ── */
+        .welcome-icon { font-size: 3rem; text-align: center; margin-bottom: 14px; }
+        .welcome-title { font-size: 1.5rem; text-align: center; margin-bottom: 8px; }
+        .welcome-sub {
+            text-align: center; opacity: .6; margin-bottom: 26px;
+            line-height: 1.65; font-size: .93rem;
+        }
+
+        /* ── Mood slider ── */
+        .mood-group { margin: 20px 0; }
+        .mood-label {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; font-size: .9rem; opacity: .8;
+        }
+        .mood-val { font-size: 1.35rem; font-weight: 700; color: var(--primary-color); }
+
+        input[type=range].mood-slider {
+            width: 100%; -webkit-appearance: none;
+            height: 6px; border-radius: 3px;
+            background: rgba(255,255,255,.12); outline: none; cursor: pointer;
+        }
+        input[type=range].mood-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 20px; height: 20px;
+            border-radius: 50%; background: var(--primary-color);
+            box-shadow: 0 0 6px var(--primary-color); cursor: pointer;
+        }
+        .mood-hints {
+            display: flex; justify-content: space-between;
+            font-size: .72rem; opacity: .4; margin-top: 4px;
+        }
+
+        /* ── Question progress dots ── */
+        .q-dots { display: flex; gap: 8px; margin-bottom: 20px; }
+        .q-dot {
+            flex: 1; height: 4px; border-radius: 2px;
+            background: rgba(255,255,255,.1);
+            transition: background .3s;
+        }
+        .q-dot.active  { background: var(--primary-color); }
+        .q-dot.done    { background: var(--secondary-color); opacity: .8; }
+        .q-dot.skipped { background: rgba(255,255,255,.12); }
+
+        /* ── Category badge ── */
+        .cat-badge {
+            display: inline-block; padding: 3px 11px;
+            border-radius: 12px; font-size: .72rem; font-weight: 700;
+            letter-spacing: .05em; text-transform: uppercase;
+            border: 1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.06);
+            margin-bottom: 14px;
+        }
+        .cat-badge.emotional_awareness  { color:#f59e0b; border-color:#f59e0b40; background:#f59e0b15; }
+        .cat-badge.behavior_patterns    { color:#60a5fa; border-color:#60a5fa40; background:#60a5fa15; }
+        .cat-badge.habit_accountability { color:#34d399; border-color:#34d39940; background:#34d39915; }
+        .cat-badge.avoidance_detection  { color:#f87171; border-color:#f8717140; background:#f8717115; }
+        .cat-badge.forward_planning     { color:#a78bfa; border-color:#a78bfa40; background:#a78bfa15; }
+
+        .q-text { font-size: 1.2rem; line-height: 1.65; margin-bottom: 18px; font-weight: 400; }
+
+        textarea.ans-area {
+            width: 100%; min-height: 110px;
+            background: rgba(0,0,0,.25);
+            border: 1px solid var(--border-color);
+            border-radius: 10px; color: var(--text-color);
+            font-size: .97rem; padding: 13px;
+            resize: vertical; font-family: inherit;
+            line-height: 1.6; outline: none;
+            transition: border-color .2s;
+        }
+        textarea.ans-area:focus { border-color: var(--primary-color); }
+
+        .q-actions {
+            display: flex; align-items: center;
+            justify-content: space-between; margin-top: 14px;
+        }
+        .skip-btn {
+            background: none; border: none;
+            color: var(--text-muted); cursor: pointer;
+            font-size: .83rem; padding: 6px 12px;
+            border-radius: 6px; transition: color .2s, background .2s;
+        }
+        .skip-btn:hover { color: var(--text-color); background: rgba(255,255,255,.05); }
+
+        /* ── Primary button ── */
+        .pri-btn {
+            padding: 12px 28px;
+            background: var(--primary-color); color: #fff;
+            border: none; border-radius: 10px;
+            font-size: .97rem; font-weight: 600;
+            cursor: pointer; transition: opacity .2s;
+        }
+        .pri-btn:hover { opacity: .85; }
+        .pri-btn.wide  { width: 100%; margin-top: 14px; }
+
+        /* ── Ghost / back button ── */
+        .ghost-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--text-muted); background: transparent;
+            border: 1px solid var(--border-color);
+            padding: 6px 14px; border-radius: 8px;
+            font-size: .83rem; cursor: pointer;
+            transition: color .2s, background .2s;
+        }
+        .ghost-btn:hover { color: var(--text-color); background: rgba(255,255,255,.05); }
+
+        /* ── Mood delta strip ── */
+        .mood-strip {
+            display: flex; gap: 0;
+            background: rgba(0,0,0,.2); border-radius: 10px;
+            overflow: hidden; margin-bottom: 20px;
+        }
+        .mood-cell {
+            flex: 1; text-align: center; padding: 12px 8px;
+            border-right: 1px solid var(--border-color);
+        }
+        .mood-cell:last-child { border-right: none; }
+        .mood-cell-lbl { font-size: .68rem; opacity: .45; text-transform: uppercase; letter-spacing: .05em; }
+        .mood-cell-val { font-size: 1.3rem; font-weight: 700; color: var(--primary-color); margin-top: 2px; }
+
+        /* ── Insights text ── */
+        .insights-text { line-height: 1.8; font-size: .93rem; white-space: pre-wrap; opacity: .9; }
+
+        /* ── Sidebar ── */
+        .side-card {
+            background: var(--card-bg);
+            border-radius: 14px; border: 1px solid var(--border-color);
+            padding: 18px; margin-bottom: 16px;
+        }
+        .side-title {
+            font-size: .72rem; font-weight: 700;
+            letter-spacing: .08em; text-transform: uppercase;
+            opacity: .45; margin-bottom: 12px;
+        }
+        .stat-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 6px 0; border-bottom: 1px solid var(--border-color);
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-lbl { font-size: .82rem; opacity: .65; }
+        .stat-val { font-size: .88rem; font-weight: 700; color: var(--primary-color); }
+
+        /* ── Topic progress bars ── */
+        .topic-row { margin-bottom: 11px; }
+        .topic-hdr { display: flex; justify-content: space-between; font-size: .78rem; margin-bottom: 3px; }
+        .topic-name { opacity: .75; }
+        .topic-pct  { font-weight: 700; color: var(--primary-color); }
+        .bar-bg { height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); }
+        .bar-fill { height: 100%; border-radius: 3px; background: var(--primary-color); transition: width .6s ease; }
+
+        /* ── History cards ── */
+        .hist-card {
+            background: rgba(0,0,0,.18); border-radius: 12px;
+            border: 1px solid var(--border-color); padding: 14px;
+            margin-bottom: 11px; cursor: pointer;
+            transition: background .18s;
+        }
+        .hist-card:hover { background: rgba(255,255,255,.04); }
+        .hist-date { font-size: .85rem; font-weight: 700; margin-bottom: 5px; }
+        .hist-meta { display: flex; gap: 14px; font-size: .77rem; opacity: .55; margin-bottom: 7px; }
+        .hist-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px; }
+        .chip {
+            padding: 2px 9px; border-radius: 10px; font-size: .7rem;
+            background: rgba(255,255,255,.07); border: 1px solid var(--border-color);
+        }
+        .chip.skipped { opacity: .35; }
+        .hist-preview {
+            font-size: .8rem; opacity: .55; margin-top: 5px;
+            display: -webkit-box; -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical; overflow: hidden;
+        }
+
+        /* ── Q&A detail view ── */
+        .qa-block {
+            margin-bottom: 18px; padding: 13px;
+            background: rgba(0,0,0,.18); border-radius: 10px;
+            border-left: 3px solid var(--primary-color);
+        }
+        .qa-block.skipped { border-left-color: rgba(255,255,255,.1); opacity: .5; }
+        .qa-q { font-size: .8rem; opacity: .55; margin-bottom: 5px; }
+        .qa-a { font-size: .93rem; line-height: 1.6; }
+
+        /* ── Loading spinner ── */
+        .spinner {
+            display: inline-block; width: 22px; height: 22px;
+            border: 3px solid rgba(255,255,255,.1);
+            border-top-color: var(--primary-color);
+            border-radius: 50%; animation: spin .75s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-blk { text-align: center; padding: 40px; opacity: .65; }
+        .loading-blk p { margin-top: 12px; font-size: .9rem; }
+
+        /* ── Utility ── */
+        .hidden { display: none !important; }
+        @media (max-width: 768px) {
+            .mon-layout { flex-direction: column; }
+            .mon-side { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="pattern-overlay"></div>
+
+    <!-- ── Header ── -->
+    <div class="mon-header">
+        <button class="ghost-btn" onclick="window.location.href='/'">← Journal</button>
+        <h1>🧭 Mental State Monitor</h1>
+        <button class="ghost-btn" id="history-btn">📋 History</button>
+    </div>
+
+    <!-- ── Main layout ── -->
+    <div class="mon-layout">
+
+        <!-- LEFT: session flow -->
+        <div class="mon-main">
+
+            <!-- Welcome / start -->
+            <div id="screen-welcome" class="mon-card">
+                <div class="welcome-icon">🧭</div>
+                <h2 class="welcome-title">Mental State Check-In</h2>
+                <p class="welcome-sub">
+                    Arwanos will ask you 5 specific questions generated from your journals,
+                    habit patterns, and topics you tend to avoid.<br>
+                    Answer honestly — skip only what you truly can't face right now.
+                </p>
+                <div class="mood-group">
+                    <div class="mood-label">
+                        <span>How are you feeling <em>right now</em>?</span>
+                        <span class="mood-val" id="start-mood-val">5.0</span>
+                    </div>
+                    <input type="range" class="mood-slider" id="start-mood" min="0" max="10" step="0.5" value="5">
+                    <div class="mood-hints">
+                        <span>😔 Very low</span><span>😐 Neutral</span><span>😊 Very high</span>
+                    </div>
+                </div>
+                <button class="pri-btn wide" id="start-btn">Start Today's Session →</button>
+                <div id="start-loading" class="loading-blk hidden">
+                    <div class="spinner" style="width:36px;height:36px;border-width:4px;"></div>
+                    <p id="start-loading-msg">Reading journal entries…</p>
+                    <div id="tune-steps" style="margin-top:14px;font-size:.8rem;opacity:.55;text-align:left;max-width:340px;margin-left:auto;margin-right:auto;">
+                        <div id="step-1" style="padding:4px 0;">⏳ Reading all journal entries…</div>
+                        <div id="step-2" style="padding:4px 0;opacity:.3;">⏳ Phase 1: Building psychological profile…</div>
+                        <div id="step-3" style="padding:4px 0;opacity:.3;">⏳ Phase 2: Generating targeted questions…</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Question view -->
+            <div id="screen-question" class="hidden">
+                <div class="mon-card">
+                    <div class="q-dots" id="q-dots"></div>
+                    <div class="cat-badge" id="q-badge"></div>
+                    <p class="q-text" id="q-text"></p>
+                    <textarea class="ans-area" id="q-ans" placeholder="Write your answer here… be honest with yourself."></textarea>
+                    <div class="q-actions">
+                        <button class="skip-btn" id="skip-btn">↪ Skip this question</button>
+                        <button class="pri-btn" id="next-btn">Next →</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Complete / end-mood -->
+            <div id="screen-complete" class="hidden">
+                <div class="mon-card">
+                    <h3 style="margin-bottom:8px;">✅ All questions answered</h3>
+                    <p style="opacity:.6;margin-bottom:22px;">How are you feeling <em>now</em>, after reflecting?</p>
+                    <div class="mood-group">
+                        <div class="mood-label">
+                            <span>Current mood</span>
+                            <span class="mood-val" id="end-mood-val">5.0</span>
+                        </div>
+                        <input type="range" class="mood-slider" id="end-mood" min="0" max="10" step="0.5" value="5">
+                    </div>
+                    <button class="pri-btn wide" id="complete-btn">Finish &amp; Generate Insights</button>
+                    <div id="complete-loading" class="loading-blk hidden">
+                        <div class="spinner" style="width:36px;height:36px;border-width:4px;"></div>
+                        <p id="complete-loading-msg">Comparing answers to journal history…</p>
+                        <div style="margin-top:14px;font-size:.8rem;opacity:.55;text-align:left;max-width:360px;margin-left:auto;margin-right:auto;">
+                            <div id="c-step-1" style="padding:4px 0;">⏳ Phase 1: Cross-referencing answers with all journals…</div>
+                            <div id="c-step-2" style="padding:4px 0;opacity:.3;">⏳ Phase 2: Enriching from psychology datasets…</div>
+                            <div id="c-step-3" style="padding:4px 0;opacity:.3;">⏳ Phase 3: Generating final insights…</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Insights view -->
+            <div id="screen-insights" class="hidden">
+                <div class="mon-card">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+                        <span style="font-size:1.9rem;">🔍</span>
+                        <div>
+                            <h3 style="margin:0;">Session Insights</h3>
+                            <span style="font-size:.78rem;opacity:.45;" id="insights-date"></span>
+                        </div>
+                    </div>
+                    <div class="mood-strip" id="insights-strip"></div>
+                    <!-- Journal cross-reference inference block -->
+                    <div id="inference-block" class="hidden" style="
+                        background:rgba(99,102,241,.08); border:1px solid rgba(99,102,241,.25);
+                        border-radius:12px; padding:14px 18px; margin-bottom:18px; font-size:.82rem; line-height:1.6;">
+                        <div style="font-weight:700;color:#818cf8;margin-bottom:8px;">🔗 Journal Cross-Reference Findings</div>
+                        <div id="inference-key" style="font-style:italic;opacity:.8;margin-bottom:10px;"></div>
+                        <div id="inference-details" style="opacity:.7;"></div>
+                    </div>
+                    <p class="insights-text" id="insights-body"></p>
+                    <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;">
+                        <button class="pri-btn" id="new-session-btn">+ New Session</button>
+                        <button class="ghost-btn" id="to-history-btn">📋 View History</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History list -->
+            <div id="screen-history" class="hidden">
+                <div class="mon-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+                        <h3 style="margin:0;">📋 Session History</h3>
+                        <button class="ghost-btn" id="hist-back-btn">← Back</button>
+                    </div>
+                    <div id="history-list"></div>
+                    <p id="no-history" class="hidden" style="text-align:center;opacity:.45;padding:40px 0;">
+                        No sessions yet — start your first check-in!
+                    </p>
+                </div>
+            </div>
+
+            <!-- Session detail -->
+            <div id="screen-detail" class="hidden">
+                <div class="mon-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+                        <h3 style="margin:0;" id="detail-title"></h3>
+                        <button class="ghost-btn" id="detail-back-btn">← History</button>
+                    </div>
+                    <div class="mood-strip" id="detail-strip"></div>
+                    <div id="detail-qa"></div>
+                    <div id="detail-insights" style="border-top:1px solid var(--border-color);padding-top:16px;margin-top:4px;"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- RIGHT: sidebar -->
+        <div class="mon-side">
+
+            <div class="side-card">
+                <div class="side-title">Overview</div>
+                <div class="stat-row">
+                    <span class="stat-lbl">Sessions completed</span>
+                    <span class="stat-val" id="s-total">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-lbl">Avg mood shift</span>
+                    <span class="stat-val" id="s-avg">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-lbl">Last session</span>
+                    <span class="stat-val" id="s-last">—</span>
+                </div>
+            </div>
+
+            <div class="side-card">
+                <div class="side-title">Topic Progress</div>
+                <div id="topic-bars">
+                    <p style="opacity:.4;font-size:.82rem;">Complete a session to track topics.</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="/renderer/js/themes.js"></script>
+    <script src="/renderer/js/monitor.js"></script>
+</body>
+</html>

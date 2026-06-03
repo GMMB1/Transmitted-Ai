@@ -1,0 +1,51 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.egg-info/
+
+# ── Virtual environments ─────────────────────────────────────────────────────
+.venv/
+.venv.bak/
+venv/
+env/
+
+# ── PRIVATE: Personal journal data — NEVER upload ───────────────────────────
+data/
+data_test/
+
+# ── PRIVATE: Vector / ChromaDB embeddings (contain personal content) ─────────
+chroma_db/
+*.sqlite3
+
+# ── PRIVATE: Logs ────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── PDFs ─────────────────────────────────────────────────────────────────────
+pdf/
+assets/*.pdf
+
+# ── IDE / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ── Claude Code local settings ───────────────────────────────────────────────
+.claude/
+
+# ── Old backups ──────────────────────────────────────────────────────────────
+backups/
+
+# ── Build artifacts ──────────────────────────────────────────────────────────
+BUILD_ISSUES.txt
+build_issues.txt
+build.py
+dist/
+*.spec
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.python-version

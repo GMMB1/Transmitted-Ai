@@ -1,0 +1,8 @@
+{
+  "model_name": "llama3:8b-instruct-q4_K_M",
+  "ollama_settings": {
+    "temperature": 0.2
+  },
+  "demo_mode": false,
+  "username": "GMM"
+}
