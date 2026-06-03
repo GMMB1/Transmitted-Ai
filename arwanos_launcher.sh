@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT="/home/gmm/Project/Transmitted-Ai"
+PROJECT="$(cd "$(dirname "$0")" && pwd)"
 ICON="$PROJECT/Arwanos_icon.png"
 LOGDIR="$PROJECT/logs"
 LOGFILE="$LOGDIR/arwanos_startup.log"
@@ -110,6 +110,6 @@ fi
 
 # ── Launch Arwanos ─────────────────────────────────────────────────────────────
 cd "$PROJECT" || exit
-source venv/bin/activate
+source .venv/bin/activate
 python Arwanos_v10.py
 deactivate

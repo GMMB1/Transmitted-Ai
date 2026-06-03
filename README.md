@@ -238,9 +238,15 @@ Open `config.json` in the root folder and edit it directly:
   "model_name": "llama3:8b-instruct-q4_K_M",
   "ollama_settings": {
     "temperature": 0.2
-  }
+  },
+  "demo_mode": false,
+  "username": "GMM"
 }
 ```
+
+**`username`** — your name or handle. Arwanos uses it throughout prompts and the web UI to personalize responses.
+
+**`demo_mode`** — when set to `true`, Arwanos loads from `data_test/` instead of `data/`, keeping demo runs isolated from your real journal and sessions. Leave it `false` for normal use.
 
 **To change the model** — replace the `model_name` value with any model you have pulled in Ollama:
 
@@ -273,16 +279,38 @@ ollama pull mistral  # pull a new one if needed
 ## Sound Toggle
 
 The dragon animation sound is **muted by default**.  
-Find this near the top of `Arwanos_v10.py`:
+Find this near the top of `utils.py`:
 
 ```python
-ARWANOS_SOUND_ENABLED = 1   # 0 = play | 1 = mute
+ARWANOS_SOUND_ENABLED: int = 1   # 0 = play | 1 = mute
 ```
 
 | Value | Meaning |
 |---|---|
 | `0` | Sound ON — dragon roar plays on startup and on the dragon button |
 | `1` | Sound OFF — completely silent *(default)* |
+
+---
+
+## Linux Desktop Launcher (optional)
+
+`arwanos_launcher.sh` is a shell launcher for Linux desktop environments. Before starting Arwanos it:
+
+- Detects your NVIDIA GPU and VRAM
+- Checks whether Ollama is running on GPU or CPU
+- Starts Ollama automatically if it is offline (with `CUDA_VISIBLE_DEVICES=0`)
+- Shows a `zenity` dialog with GPU status and the current model before launch
+- Writes a timestamped startup log to `logs/arwanos_startup.log`
+
+To use it, make it executable once:
+
+```bash
+chmod +x arwanos_launcher.sh
+./arwanos_launcher.sh
+```
+
+> **Note:** The script expects your virtual environment at `.venv/`. If you named yours differently, edit the `source .venv/bin/activate` line near the bottom of the script.  
+> `zenity` must be installed (`sudo apt install zenity` on Debian/Ubuntu).
 
 ---
 
