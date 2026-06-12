@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="Arwanos_icon.png" width="160" alt="Arwanos Logo"/>
+  <img src="Arwanos_icon_v10.png" width="200" alt="Arwanos Logo"/>
 </div>
 
 # Arwanos — Transmitted AI Personal Assistant
