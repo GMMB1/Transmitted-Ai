@@ -4,12 +4,13 @@
 
 const Themes = {
     themeConfigs: {
+        // v10 native look — purple/cyan on deep dark
         default: {
-            primary: '#ff3232',
-            secondary: '#3c55e4',
-            backPrimary: '#1a0a0a',
-            backSecondary: '#0a0a1a',
-            container: '#181820',
+            primary: '#7c3aed',
+            secondary: '#06b6d4',
+            backPrimary: '#0a0a0f',
+            backSecondary: '#12121a',
+            container: '#1a1a28',
             cardBg: '#1e1e2a'
         },
         blue: {
@@ -116,6 +117,29 @@ const Themes = {
         root.style.setProperty('--back-secondary-color', theme.backSecondary);
         root.style.setProperty('--container-color', theme.container);
         root.style.setProperty('--card-bg', theme.cardBg);
+
+        // v10 design tokens — the redesigned CSS reads these, not the legacy
+        // names above. Without them only text/border colors changed.
+        const rgb = (hex) => {
+            const h = hex.replace('#', '');
+            return `${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)}`;
+        };
+        root.style.setProperty('--accent', theme.primary);
+        root.style.setProperty('--accent2', theme.secondary);
+        root.style.setProperty('--accent-glow', `rgba(${rgb(theme.primary)},0.3)`);
+        root.style.setProperty('--accent2-glow', `rgba(${rgb(theme.secondary)},0.3)`);
+        root.style.setProperty('--accent-gradient', `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`);
+        root.style.setProperty('--border-active', `rgba(${rgb(theme.primary)},0.6)`);
+        root.style.setProperty('--bg-base', theme.backPrimary);
+        root.style.setProperty('--bg-surface', theme.backSecondary);
+        root.style.setProperty('--bg-elevated', theme.container);
+        if (theme.isLight) {
+            root.style.setProperty('--bg-glass', 'rgba(0,0,0,0.04)');
+            root.style.setProperty('--bg-glass-hover', 'rgba(0,0,0,0.08)');
+        } else {
+            root.style.setProperty('--bg-glass', 'rgba(255,255,255,0.04)');
+            root.style.setProperty('--bg-glass-hover', 'rgba(255,255,255,0.08)');
+        }
 
         // Light theme specific colors
         if (theme.textColor) {
