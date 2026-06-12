@@ -411,6 +411,15 @@ const Storage = {
         return this.settings.pattern || 'none';
     },
 
+    setPatternColor(color) {
+        this.settings.patternColor = color;
+        this.save();
+    },
+
+    getPatternColor() {
+        return this.settings.patternColor || 'purple';
+    },
+
     // ==================== Monthly Reports ====================
     addMonthlyReport(report) {
         const existingIndex = this.monthlyReports.findIndex(
