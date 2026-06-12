@@ -1151,12 +1151,13 @@ body:has(.weekly-popup.open) .side-menu {
 .neon-amber   { background: #f59e0b; box-shadow: 0 0 7px #f59e0b; }
 .neon-teal    { background: #14b8a6; box-shadow: 0 0 7px #14b8a6; }
 
-/* Pattern dots */
-.pattern-none   { background: var(--bg-glass); border-style: dashed; }
-.pattern-hex    { background: #7c3aed; }
-.pattern-paper  { background: #6b7280; }
-.pattern-lines  { background: #3b82f6; }
-.pattern-curves { background: #10b981; }
+/* Pattern dots — scoped to the palette picker so the same class names
+   on <body> (set by applyPattern) never recolor the page background */
+.palette-dot.pattern-none,   .mobile-dot.pattern-none   { background: var(--bg-glass); border-style: dashed; }
+.palette-dot.pattern-hex,    .mobile-dot.pattern-hex    { background: #7c3aed; }
+.palette-dot.pattern-paper,  .mobile-dot.pattern-paper  { background: #6b7280; }
+.palette-dot.pattern-lines,  .mobile-dot.pattern-lines  { background: #3b82f6; }
+.palette-dot.pattern-curves, .mobile-dot.pattern-curves { background: #10b981; }
 
 /* Mobile theme control */
 .mobile-theme-control { display: none; padding: 11px; background: var(--bg-glass); border-radius: var(--radius); margin: 0 6px 6px; }
