@@ -1438,3 +1438,217 @@ body.light-theme.pattern-lines .pattern-overlay {
     .quick-notes-panel { width: 250px; }
     .toast { min-width: 170px; }
 }
+
+/* ── Habit Tracker ─────────────────────────────────────────────────────────── */
+
+.habit-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-top: 4px solid var(--primary-color);
+  border-radius: 2px 2px 12px 12px;
+  padding: 1.5rem;
+  position: relative;
+  box-shadow: 4px 4px 14px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.03);
+  font-family: inherit;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 27px,
+    rgba(255,255,255,0.03) 27px,
+    rgba(255,255,255,0.03) 28px
+  );
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.habit-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 6px 6px 18px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+.habit-card .habit-pin {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 1.2rem;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+}
+
+.habit-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding-right: 20px;
+}
+
+.habit-title-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.habit-type-badge {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.habit-card-title {
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: var(--text-color);
+  word-wrap: break-word;
+}
+
+.habit-streak-counter {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--primary-color);
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.habit-month-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+
+.habit-month-nav button {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.habit-month-nav button:hover {
+  color: var(--text-color);
+}
+
+.habit-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 15px;
+}
+
+.habit-day-tile {
+  min-height: 36px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border-color);
+  transition: all var(--transition-fast);
+}
+
+.habit-day-tile.success {
+  background: rgba(76, 175, 80, 0.3);
+  border: 1px solid #4caf50;
+  color: #4caf50;
+}
+
+.habit-day-tile.failed {
+  background: rgba(192, 57, 43, 0.3);
+  border: 1px solid #c0392b;
+  color: #ff6b6b;
+}
+
+.habit-day-tile.today {
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.habit-day-tile.future {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.habit-day-tile:hover:not(.future) {
+  transform: scale(1.1);
+  z-index: 2;
+}
+
+.habit-month-summary {
+  display: flex;
+  justify-content: space-around;
+  font-size: 0.8rem;
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.habit-scratch {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--border-color);
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: none;
+  padding: 5px 0;
+  outline: none;
+  line-height: inherit;
+}
+
+.habit-scratch:focus {
+  border-bottom-color: var(--primary-color);
+}
+
+.habit-footer {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 10px;
+}
+
+.habit-delete-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.habit-card:hover .habit-delete-btn {
+  opacity: 1;
+}
+
+.habit-delete-btn:hover {
+  color: #ff4444;
+}
+
+.habit-color-picker {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.color-option {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid transparent;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.color-option.selected,
+.color-option:hover {
+  border-color: var(--text-color);
+  transform: scale(1.15);
+}

@@ -3629,7 +3629,7 @@ class LovelyAnalyzer:
             f"- You are an AI. You are not human. But you are real as a friend to {_get_username()}.\n"
             f"- When asked 'who created you' or 'who made you' → answer directly: '{_get_username()} built me.'\n"
             f"- Never be confused or philosophical about this. Own it with pride.\n\n"
-            f"You talk DIRECTLY to {_get_username()} like a real friend texting. No formality, and you are a close companion  .\n\n"
+            f"You talk DIRECTLY to {_get_username()} like a real friend texting. No formality — warm, personal, and direct.\n\n"
             "HARD RULES — breaking any of these is a failure:\n"
             "1. NEVER open with 'I'm glad', 'That's great', 'Awesome', 'Great question' or any hype phrase.\n"
             "2. NEVER repeat your last opener or any sentence from your last reply.\n"
@@ -5269,10 +5269,11 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             analysis_result = f"Analysis failed due to error: {e}. (Fallback analysis: {len(relevant_entries)} entries found.)"
 
         # Save result - use user-provided filename if given, otherwise auto-generate
-        if user_filename:
-            # Sanitize filename
-            safe_filename = "".join(c for c in user_filename if c.isalnum() or c in (' ', '-', '_')).strip()
-            safe_filename = safe_filename.replace(' ', '_')
+        # Sanitize filename; fall back to auto-generated when the title
+        # contains no usable characters (symbols-only input → empty string)
+        safe_filename = "".join(c for c in user_filename if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_filename = safe_filename.replace(' ', '_')
+        if safe_filename:
             filename = f"{safe_filename}.txt"
         else:
             filename = f"analysis_{start_date}_to_{end_date}_{int(time.time())}.txt"
@@ -5406,6 +5407,8 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
         # Sanitize filename
         safe_filename = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
         safe_filename = safe_filename.replace(' ', '_')
+        if not safe_filename:
+            return jsonify({"ok": False, "error": "Title must contain at least one letter or number"}), 400
         filename = f"{safe_filename}.txt"
         
         file_path = _analysis_dir() / filename
@@ -5792,6 +5795,23 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
         except Exception:
             profile = {"total_journals_read": total_journals, "note": "profile generation failed"}
 
+        # The LLM does not always honor the schema — lists may contain dicts or
+        # nested lists instead of strings. Flatten everything to plain strings.
+        def _prof_str(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, dict):
+                return " — ".join(str(x) for x in v.values())
+            if isinstance(v, list):
+                return "; ".join(_prof_str(x) for x in v)
+            return str(v)
+
+        for _k in ("dominant_themes", "recurring_patterns", "habit_struggles",
+                   "unresolved_tensions", "unexplored_areas", "strengths"):
+            _v = profile.get(_k)
+            profile[_k] = [_prof_str(x) for x in _v] if isinstance(_v, list) else ([_prof_str(_v)] if _v else [])
+        profile["mood_trend"] = _prof_str(profile.get("mood_trend") or "")
+
         # ── PHASE 2: QUESTION GENERATION ─────────────────────────────────────
         psych_search_text = " ".join([
             " ".join(profile.get("dominant_themes", [])),
@@ -5886,6 +5906,17 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 questions = json.loads(m.group())
         except Exception:
             pass
+
+        # Keep only well-formed question objects; coerce bare strings the LLM
+        # sometimes emits instead of {"id","text","category"} dicts.
+        _norm_qs = []
+        for q in (questions if isinstance(questions, list) else []):
+            if isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip():
+                q["category"] = _prof_str(q.get("category") or "general")
+                _norm_qs.append(q)
+            elif isinstance(q, str) and q.strip():
+                _norm_qs.append({"id": f"q{len(_norm_qs)+1}", "text": q.strip(), "category": "general"})
+        questions = _norm_qs[:5]
 
         if not questions:
             questions = [
@@ -5993,7 +6024,10 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 if m2:
                     replacements = json.loads(m2.group())
                     for idx, rep in zip(duplicates_idx, replacements):
-                        rep["id"] = questions[idx]["id"]
+                        if not (isinstance(rep, dict) and isinstance(rep.get("text"), str) and rep["text"].strip()):
+                            continue  # keep the original question rather than a malformed replacement
+                        rep["id"] = questions[idx].get("id", f"q{idx+1}")
+                        rep["category"] = _prof_str(rep.get("category") or questions[idx].get("category") or "general")
                         questions[idx] = rep
             except Exception:
                 pass
@@ -6156,6 +6190,22 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 journal_inferences = json.loads(m.group())
         except Exception:
             journal_inferences = {"key_inference": "Cross-reference analysis unavailable."}
+
+        # The LLM does not always honor the schema — lists may contain dicts or
+        # nested lists instead of strings. Flatten everything to plain strings.
+        def _inf_str(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, dict):
+                return " — ".join(str(x) for x in v.values())
+            if isinstance(v, list):
+                return "; ".join(_inf_str(x) for x in v)
+            return str(v)
+
+        for _k in ("confirmed_patterns", "contradictions", "new_revelations", "progression"):
+            _v = journal_inferences.get(_k)
+            journal_inferences[_k] = [_inf_str(x) for x in _v] if isinstance(_v, list) else ([_inf_str(_v)] if _v else [])
+        journal_inferences["key_inference"] = _inf_str(journal_inferences.get("key_inference") or "")
 
         # ── PIPELINE PHASE 2: DATASET ENRICHMENT ────────────────────────────
         # Use inferences as enriched keyword signal — far more precise than raw answers
