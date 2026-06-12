@@ -43,7 +43,6 @@ backups/
 # ── Build artifacts ──────────────────────────────────────────────────────────
 BUILD_ISSUES.txt
 build_issues.txt
-build.py
 dist/
 *.spec
 
