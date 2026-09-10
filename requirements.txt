@@ -25,8 +25,14 @@ packaging>=23.0
 # ── ML / datasets (Mental State Monitor pipeline) ────────────────────────────
 datasets>=2.18.0           # download psychology datasets — run: python build_datasets.py
 
+# ── Memory / voice — /lo semantic recall and speech both hard-depend on these.
+# They were listed as optional, so a clean venv rebuild silently dropped them:
+# chromadb missing makes _lo_rag_recall() return "" with no error, and /lo just
+# quietly forgets things. Not optional.
+chromadb>=0.4.22           # vector memory — /lo semantic recall, /analyze retrieval
+faster-whisper>=1.0.0      # speech-to-text — voice input and call mode
+
 # ── Optional — enable extra features ─────────────────────────────────────────
-# chromadb>=0.4.22       # vector memory / RAG storage
 # pdfplumber             # import PDF files into sessions
 # spacy                  # NLP / language detection
 # nltk                   # tokenization

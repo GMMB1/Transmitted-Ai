@@ -119,6 +119,14 @@
             border-radius: 6px; transition: color .2s, background .2s;
         }
         .skip-btn:hover { color: var(--text-color); background: rgba(255,255,255,.05); }
+        .skip-reasons { display: none; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .skip-reasons.open { display: flex; }
+        .skip-reason-chip {
+            border: 1px solid var(--border-color); background: transparent;
+            color: var(--text-color); opacity: .75; border-radius: 999px;
+            padding: 6px 12px; font-size: .78rem; cursor: pointer;
+        }
+        .skip-reason-chip:hover { opacity: 1; border-color: var(--primary-color); }
 
         /* ── Primary button ── */
         .pri-btn {
@@ -260,7 +268,8 @@
                 <p class="welcome-sub">
                     Arwanos will ask you 5 specific questions generated from your journals,
                     habit patterns, and topics you tend to avoid.<br>
-                    Answer honestly — skip only what you truly can't face right now.
+                    Answer honestly — and skip anything that doesn't fit today.
+                    Telling Arwanos <em>why</em> you skipped keeps the analysis accurate.
                 </p>
                 <div class="mood-group">
                     <div class="mood-label">
@@ -294,6 +303,13 @@
                     <div class="q-actions">
                         <button class="skip-btn" id="skip-btn">↪ Skip this question</button>
                         <button class="pri-btn" id="next-btn">Next →</button>
+                    </div>
+                    <div class="skip-reasons" id="skip-reasons">
+                        <button class="skip-reason-chip" data-reason="not relevant to me today">Not relevant today</button>
+                        <button class="skip-reason-chip" data-reason="question feels repetitive">Feels repetitive</button>
+                        <button class="skip-reason-chip" data-reason="too tired / low energy right now">Too tired</button>
+                        <button class="skip-reason-chip" data-reason="don't want to go there right now">Don't want to go there</button>
+                        <button class="skip-reason-chip" data-reason="">Just skip</button>
                     </div>
                 </div>
             </div>

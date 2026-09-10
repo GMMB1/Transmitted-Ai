@@ -48,3 +48,12 @@ dist/
 
 # ── OS ───────────────────────────────────────────────────────────────────────
 .python-version
+
+# ── PRIVATE: Bug-bounty / recon output — third-party findings, never publish ──
+scan_results.csv
+*_scan_results.csv
+hunt_session.json
+Hunt/
+
+# ── PRIVATE: raw image sources / scratch ─────────────────────────────────────
+ChatGPT Image *.png

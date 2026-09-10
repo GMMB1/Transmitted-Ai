@@ -29,7 +29,7 @@
     const S = {
         session:    null,   // active session object
         currentQ:  0,       // index into session.questions
-        answers:   {},      // { questionId: { text, skipped } }
+        answers:   {},      // { questionId: { text, skipped, skip_reason } }
         prevScreen: 'welcome',
     };
 
@@ -235,7 +235,7 @@
     }
 
     // ── Submit answer ───────────────────────────────────────────────────────
-    async function submitAnswer(skipped) {
+    async function submitAnswer(skipped, skipReason = '') {
         const q    = S.session.questions[S.currentQ];
         const text = document.getElementById('q-ans').value.trim();
 
@@ -247,7 +247,7 @@
             return;
         }
 
-        S.answers[q.id] = { text: skipped ? '' : text, skipped };
+        S.answers[q.id] = { text: skipped ? '' : text, skipped, skip_reason: skipped ? skipReason : '' };
 
         // Fire-and-forget save (non-blocking)
         fetch('/api/monitor/session/answer', {
@@ -258,9 +258,11 @@
                 question_id: q.id,
                 text:        skipped ? '' : text,
                 skipped,
+                skip_reason: skipped ? skipReason : '',
             }),
         }).catch(() => {});
 
+        document.getElementById('skip-reasons').classList.remove('open');
         S.currentQ++;
         if (S.currentQ >= S.session.questions.length) {
             showComplete();
@@ -471,15 +473,16 @@
             );
 
             document.getElementById('detail-qa').innerHTML = (s.questions || []).map(q => {
-                const ans     = (s.answers || []).find(a => a.question_id === q.id);
-                const skipped = !ans || ans.skipped;
+                const ans      = (s.answers || []).find(a => a.question_id === q.id);
+                const skipped  = !ans || ans.skipped;
+                const skipNote = (skipped && ans && ans.skip_reason) ? ` — ${ans.skip_reason}` : '';
                 return `
                     <div class="qa-block ${skipped ? 'skipped' : ''}">
                         <div class="cat-badge ${q.category || ''}" style="display:inline-block;margin-bottom:6px;">
                             ${(q.category || '').replace(/_/g, ' ')}
                         </div>
                         <div class="qa-q">${q.text}</div>
-                        <div class="qa-a">${skipped ? '<em>Skipped</em>' : (ans.text || '')}</div>
+                        <div class="qa-a">${skipped ? `<em>Skipped${skipNote}</em>` : (ans.text || '')}</div>
                     </div>`;
             }).join('');
 
@@ -499,7 +502,13 @@
     function bindButtons() {
         document.getElementById('start-btn').addEventListener('click', startSession);
         document.getElementById('next-btn').addEventListener('click',  () => submitAnswer(false));
-        document.getElementById('skip-btn').addEventListener('click',  () => submitAnswer(true));
+        // Skip opens the reason chips; a chip (incl. "Just skip") submits the skip.
+        document.getElementById('skip-btn').addEventListener('click',  () => {
+            document.getElementById('skip-reasons').classList.toggle('open');
+        });
+        document.querySelectorAll('.skip-reason-chip').forEach(chip => {
+            chip.addEventListener('click', () => submitAnswer(true, chip.dataset.reason || ''));
+        });
         document.getElementById('complete-btn').addEventListener('click', completeSession);
         document.getElementById('new-session-btn').addEventListener('click', () => show('welcome'));
         document.getElementById('to-history-btn').addEventListener('click',  () => { loadHistory(); show('history'); });
