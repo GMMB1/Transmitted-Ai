@@ -20,13 +20,38 @@ import html as _html
 import datetime
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Tuple
+
+# ── Run under the project .venv ─────────────────────────────────────────────
+# The .venv holds the app's real deps (customtkinter, faster-whisper, edge-tts,
+# chromadb). If Arwanos is started from a bare interpreter — the IDE "Run"
+# button, a plain `python Arwanos_v10.py`, a desktop shortcut — those imports
+# fail or voice reports "faster-whisper isn't available". Re-exec ONCE under
+# .venv/bin/python, BEFORE the heavy imports below, so the app always runs with
+# its full stack no matter how it was launched.
+if os.environ.get("ARWANOS_REEXEC") != "1":
+    import sys as _sys
+    try:
+        import customtkinter as _probe_ctk  # noqa: F401
+        import faster_whisper as _probe_fw   # noqa: F401
+    except Exception:
+        _venv_py = Path(__file__).resolve().parent / ".venv" / "bin" / "python"
+        if _venv_py.exists() and str(_venv_py) != _sys.executable:
+            os.environ["ARWANOS_REEXEC"] = "1"   # guard against a re-exec loop
+            try:
+                os.execv(str(_venv_py),
+                         [str(_venv_py), os.path.abspath(__file__), *_sys.argv[1:]])
+            except Exception:
+                pass  # fall through and try to run anyway
 
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from ui_enhancements import apply_chat_styling, add_top_controls
+from ui_enhancements import (
+    apply_chat_styling, add_top_controls, V10_TOKENS as V10,
+    THEMES, THEME_LEGACY_REMAP_KEYS,
+)
 from config import AppConfig, AutoConfig
 from rtl_text import shape_for_tk, has_arabic
 from utils import (
@@ -96,6 +121,12 @@ class SearchEngine:
                 for ti in idx.get(term, []):
                     seen.add(ti)
             if seen:
+                # Index entries only ever point at imported/saved-session turns —
+                # older material. Tag it so the LLM never reads it as today's talk.
+                _imp_date = getattr(self, "_imported_session_date", "") or ""
+                _tag = (f"[From an OLDER saved session ({_imp_date}) — historical, NOT today's conversation] "
+                        if _imp_date else
+                        "[From an OLDER saved session — historical, NOT today's conversation] ")
                 hits = []
                 for ti in sorted(seen):
                     if ti >= len(history):
@@ -105,8 +136,8 @@ class SearchEngine:
                         continue
                     hits.append({
                         "source": "conversation",
-                        "title": "Session match",
-                        "content": text,
+                        "title": "Imported session match (older)",
+                        "content": _tag + text,
                         "url": "",
                         "score": _overlap_score(ql, text.lower()),
                     })
@@ -941,8 +972,14 @@ async def _call_llm_with_context(
     # Try async interfaces first
     try:
         kwargs = {}
+        # Merge over the LLM's base opts (never replace) so num_ctx stays
+        # constant — a bare {"num_predict": …} dict was dropping num_ctx and
+        # forcing an Ollama runner rebuild on every budgeted call.
+        _base_opts = dict(getattr(llm, "options", {}) or {})
         if budget and hasattr(budget, "max_response_tokens"):
-            kwargs["options"] = {"num_predict": budget.max_response_tokens}
+            _base_opts["num_predict"] = budget.max_response_tokens
+        if _base_opts:
+            kwargs["options"] = _base_opts
         if hasattr(llm, "ainvoke"):
             resp = await llm.ainvoke(prompt, **kwargs)
             return (getattr(resp, "content", None) or str(resp or "")).strip()
@@ -965,8 +1002,34 @@ async def _call_llm_with_context(
     except Exception as e:
         logging.error(f"apredict failed: {e}", exc_info=True)
 
-    # Sync fallbacks executed in thread so Tk stays responsive
+    # Sync fallbacks executed in thread so Tk stays responsive.
+    # This block was previously missing — the function fell off the end and
+    # returned None, which callers rendered as an empty/failed answer.
     loop = asyncio.get_running_loop()
+
+    def _sync():
+        try:
+            if hasattr(llm, "invoke"):
+                r = llm.invoke(prompt)
+                return (getattr(r, "content", None) or str(r or "")).strip()
+            if hasattr(llm, "generate"):
+                r = llm.generate([prompt])
+                if getattr(r, "generations", None) and r.generations[0]:
+                    return (getattr(r.generations[0][0], "text", "") or "").strip()
+            if hasattr(llm, "predict"):
+                return (llm.predict(prompt) or "").strip()
+        except Exception as e:
+            logging.error(f"Sync LLM invocation failed: {e}", exc_info=True)
+        return ""
+
+    try:
+        text = await loop.run_in_executor(None, _sync)
+        if text:
+            return text
+    except Exception as e:
+        logging.error(f"Executor invocation failed: {e}", exc_info=True)
+
+    return "The model did not return a response — check that Ollama is running (`ollama serve`)."
 
 
 # --- unified intrinsic helper (used by /intrinsic or when no context available) ---
@@ -1062,6 +1125,12 @@ class _SearchEngineFacade:
                 for ti in idx.get(term, []):
                     seen.add(ti)
             if seen:
+                # Index entries only ever point at imported/saved-session turns —
+                # older material. Tag it so the LLM never reads it as today's talk.
+                _imp_date = getattr(self.app, "_imported_session_date", "") or ""
+                _tag = (f"[From an OLDER saved session ({_imp_date}) — historical, NOT today's conversation] "
+                        if _imp_date else
+                        "[From an OLDER saved session — historical, NOT today's conversation] ")
                 hits = []
                 for ti in sorted(seen):
                     if ti >= len(history):
@@ -1077,8 +1146,8 @@ class _SearchEngineFacade:
                         continue
                     hits.append({
                         "source": "conversation",
-                        "title": "Session match",
-                        "content": text,
+                        "title": "Imported session match (older)",
+                        "content": _tag + text,
                         "url": "",
                         "score": _overlap_score(ql, text.lower()),
                     })
@@ -1974,12 +2043,28 @@ class CommandRouterMixin:
         cmd, arg = self._split_cmd(raw)
 
         if not cmd:
-            # Normal text → app pipeline
+            # Normal text → app pipeline, streamed live when possible
+            sink = self._stream_prepare() if hasattr(self, "_stream_prepare") else None
             try:
+                if sink is not None:
+                    self._active_stream_cb = sink
                 out = await self.generate_response(raw)
-                if out:
+                self._active_stream_cb = None
+                if sink is not None:
+                    self._finalize_stream(out or "")
+                elif out:
                     self._reply_assistant(out)
+                # Learn durable facts from this turn (background, non-blocking)
+                if out and hasattr(self, "_extract_and_save_chat_memory"):
+                    try:
+                        asyncio.ensure_future(
+                            self._extract_and_save_chat_memory(raw, out))
+                    except Exception:
+                        pass
             except Exception as e:
+                self._active_stream_cb = None
+                if hasattr(self, "_stream_clear"):
+                    self._stream_clear()
                 self._reply_assistant(f"❌ Error: {e}")
             return
 
@@ -2250,11 +2335,23 @@ class CommandRouterMixin:
             exp_str = "?"
 
         tc = cache.get("turn_count", 0)
-        sm = cache.get("summary", "—")
+
+        # Clean the topic list — the raw summary was keyword-index output full
+        # of stopwords ("like, think, still, into") that meant nothing on screen.
+        _HINT_STOP = {
+            "like", "think", "read", "still", "into", "these", "those", "that",
+            "this", "with", "from", "have", "been", "will", "just", "what",
+            "when", "your", "then", "them", "were", "also", "some", "more",
+            "very", "much", "about", "there", "here", "over", "than",
+        }
+        sm = cache.get("summary", "") or ""
+        words = [w.strip(" ,.") for w in sm.replace("Topics:", "").split(",")]
+        topics = [w for w in words if len(w) >= 4 and w.lower() not in _HINT_STOP][:5]
+        topic_str = ", ".join(topics) if topics else "general conversation"
+
         self._reply_assistant(
-            f"**Last session restored** *(expires {exp_str}, {tc} turns)*\n"
-            f"{sm}\n"
-            "Import a session file to replace this, or `/lo` to continue."
+            f"**Last session restored** — {tc} turns · {topic_str} · expires {exp_str}\n"
+            "`/lo` continues it · importing a session file replaces it."
         )
 
     def _cmd_save(self, _arg=None):
@@ -2377,6 +2474,11 @@ class CommandRouterMixin:
                     preexec_fn=os.setsid,
                 )
                 self._vo_proc = proc
+                # Call mode + barge-in: watch the mic and cut this reply short
+                # if the user starts talking over it.
+                if getattr(self, "_voice_call_mode", False):
+                    try: self._voice_barge_monitor(proc)
+                    except Exception: pass
                 proc.wait()
             except Exception:
                 pass
@@ -2387,6 +2489,9 @@ class CommandRouterMixin:
                     except Exception: pass
                 if hasattr(self, "after"):
                     self.after(0, self._hide_vo_indicator)
+                    # Call mode: reply finished (or was barged) → listen again.
+                    if getattr(self, "_voice_call_mode", False):
+                        self.after(300, lambda: self._voice_listen_turn(call=True))
 
         # Show the stop button
         self.after(0, self._show_vo_indicator)
@@ -2419,6 +2524,9 @@ class CommandRouterMixin:
 
     def _stop_speaking(self) -> None:
         """Kill the running TTS process and hide the indicator."""
+        # Pressing Stop also ends any active voice call — the user wants quiet.
+        self._voice_call_mode = False
+        self._refresh_call_button()
         proc = getattr(self, "_vo_proc", None)
         if proc:
             try:
@@ -2429,6 +2537,469 @@ class CommandRouterMixin:
                 except Exception: pass
             self._vo_proc = None
         self._hide_vo_indicator()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # VOICE INPUT — push-to-talk speech→text (faster-whisper, fully local)
+    # plus "call mode": speak each reply, then auto-listen again, hands-free.
+    # ══════════════════════════════════════════════════════════════════════
+    def _voice_cfg(self, key: str, default):
+        try:
+            cfg = json.loads(
+                (Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8")
+            )
+            return (cfg.get("voice") or {}).get(key, default)
+        except Exception:
+            return default
+
+    # ── voice routing mode ────────────────────────────────────────────────────
+    # Which pipeline a spoken message goes to. Asked once on first use, stored in
+    # config.json under voice.mode, and changeable from Settings afterwards.
+    VOICE_MODES = (
+        ("lo",      "\U0001f49f  Companion  (/lo)",  "Talk to Arwanos as a friend. Remembers you."),
+        ("analyze", "\U0001f9e0  Analyze  (/analyze)", "Ask about your journal and patterns."),
+        ("deep",    "\U0001f50d  Deep  (/deep)",     "Research with live web sources."),
+        ("normal",  "\U0001f4ac  Normal chat",       "Plain conversation, no command."),
+    )
+
+    def _voice_mode(self):
+        """Saved routing mode, or None when the user has never chosen one."""
+        m = self._voice_cfg("mode", None)
+        return m if m in {k for k, _l, _d in self.VOICE_MODES} else None
+
+    def _save_voice_mode(self, mode: str) -> None:
+        """Persist voice.mode so the picker is a one-time prompt, not a per-use nag."""
+        try:
+            cfg_path = Path(__file__).resolve().parent / "config.json"
+            cfg: dict = {}
+            if cfg_path.exists():
+                try:
+                    cfg = json.loads(cfg_path.read_text(encoding="utf-8") or "{}")
+                except Exception:
+                    cfg = {}
+            voice = cfg.get("voice")
+            if not isinstance(voice, dict):
+                voice = {}
+            voice["mode"] = mode
+            cfg["voice"] = voice
+            cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _voice_mode_prefix(mode: str) -> str:
+        """Command prefix a spoken message is routed through ('' for normal chat)."""
+        return {"lo": "/lo ", "analyze": "/analyze ", "deep": "/deep "}.get(mode, "")
+
+    def _voice_mode_label(self, mode: str) -> str:
+        for k, lbl, _d in self.VOICE_MODES:
+            if k == mode:
+                return lbl
+        return "\U0001f4ac  Normal chat"
+
+    def _ensure_voice_mode(self, then):
+        """Run *then(mode)* — asking once if no mode has been chosen yet.
+
+        A broken picker must never cost the user voice input: if the dialog cannot
+        be shown, fall through to normal chat instead of leaving the recorder
+        un-started with nothing on screen to explain why.
+        """
+        mode = self._voice_mode()
+        if mode:
+            then(mode)
+            return
+        try:
+            self._show_voice_mode_picker(then, first_run=True)
+        except Exception as exc:
+            import logging; logging.warning("voice mode picker failed: %s", exc)
+            self.update_status("\U0001f3a4 Voice \u2192 normal chat (set a mode in Settings)")
+            then("normal")
+
+    def _lazy_whisper(self):
+        """Return the loaded faster-whisper model, or None. A SUCCESS is cached;
+        a transient load failure (e.g. first-run download hiccup) is NOT cached,
+        so it can retry — the old code cached None forever after one failure,
+        which is what disabled voice for the whole session."""
+        if self._whisper_model is not None:
+            return self._whisper_model
+        if self._whisper_unavailable:        # package genuinely absent — don't re-import
+            return None
+        try:
+            from faster_whisper import WhisperModel
+        except Exception:
+            self._whisper_unavailable = True
+            self._whisper_error = (
+                "faster-whisper isn't available in the Python running Arwanos. "
+                "Launch via ./arwanos_launcher.sh (it uses .venv, which has it).")
+            import logging; logging.warning("faster-whisper import failed")
+            return None
+        try:
+            size = self._voice_cfg("model", "base.en")
+            self._whisper_model = WhisperModel(size, device="cpu", compute_type="int8")
+            self._whisper_error = None
+            import logging; logging.info("Whisper ready: %s", size)
+            return self._whisper_model
+        except Exception as e:
+            self._whisper_error = (
+                f"the voice model couldn't load ({type(e).__name__}). "
+                "The first run downloads it — check your internet, then try again.")
+            import logging; logging.warning("Whisper load failed: %s", e)
+            return None                       # transient → allow retry next time
+
+    def _ensure_voice_ready(self, then):
+        """Preload the model in a worker thread, then call then(ok) on the UI
+        thread. Loading upfront means failures surface ONCE, before a
+        conversation starts — not mid-turn, on a loop."""
+        if self._whisper_model is not None:
+            then(True); return
+        if self._whisper_unavailable:
+            then(False); return
+        self.update_status("⏳ Loading voice model…")
+
+        def _load():
+            ok = self._lazy_whisper() is not None
+            self.after(0, lambda: then(ok))
+        threading.Thread(target=_load, name="WhisperLoad", daemon=True).start()
+
+    def _voice_device(self) -> str:
+        return self._voice_cfg("device", "default")
+
+    def _transcribe_wav(self, wav: str) -> str:
+        """faster-whisper transcription with gm-agent's anti-hallucination decoding:
+        temperature fallback + compression-ratio / logprob / no-speech guards +
+        condition_on_previous_text=False. This is what stops Whisper decoding
+        silence or noise into confident gibberish."""
+        import os
+        model = self._lazy_whisper()
+        if model is None:
+            return ""          # caller handles messaging (the ensure-ready gate)
+        try:
+            if not (wav and os.path.exists(wav) and os.path.getsize(wav) > 1024):
+                return ""
+            lang = (self._voice_cfg("language", "en") or "").strip() or None
+            segments, _info = model.transcribe(
+                wav, language=lang, task="transcribe",
+                temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,
+                no_speech_threshold=0.6,
+                condition_on_previous_text=False,
+                vad_filter=True, beam_size=1,
+            )
+            return " ".join(s.text for s in segments).strip()
+        except Exception as e:
+            import logging; logging.warning("transcribe failed: %s", e)
+            return ""
+
+    # ── VAD capture — talk, pause when done; it detects the end of your turn.
+    # Ported from gm-agent's browser turn-VAD (RMS level + silence timeout),
+    # driven here by an arecord raw-PCM stream analysed with numpy.
+    def _toggle_voice_record(self):
+        if getattr(self, "_voice_listening", False):
+            self._voice_cancel()
+            return
+
+        def _go(ok):
+            if not ok:
+                self._reply_assistant("🎤 " + (self._whisper_error or "Voice model unavailable."))
+                self.update_status("✅ Ready")
+                return
+
+            def _start(mode):
+                self._voice_active_mode = mode
+                self._voice_listen_turn(call=False)
+            self._ensure_voice_mode(_start)
+        self._ensure_voice_ready(_go)
+
+    def _voice_cancel(self):
+        # the reader loop polls this flag, stops arecord, and bails
+        self._voice_listening = False
+
+    def _voice_listen_turn(self, call: bool = False):
+        import subprocess, os
+        if getattr(self, "_voice_listening", False):
+            return
+        args = ["arecord", "-q", "-D", self._voice_device(),
+                "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "raw"]
+        try:
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
+        except FileNotFoundError:
+            self.after(0, lambda: self._reply_assistant(
+                "🎤 `arecord` not found — install `alsa-utils`, or set voice.record_cmd."))
+            return
+        except Exception as e:
+            self.after(0, lambda e=e: self._reply_assistant(f"🎤 Mic error: {e}"))
+            return
+
+        self._voice_listening = True
+        self._voice_proc = proc
+        self.after(0, self._refresh_mic_button)
+        self.after(0, lambda: self.update_status("🎙 Listening… just talk, pause when done"))
+
+        def _reader():
+            import numpy as np, signal
+            thresh   = float(self._voice_cfg("threshold", 0.025))
+            sil_stop = int(self._voice_cfg("silence_ms", 1300))
+            max_turn = int(self._voice_cfg("max_turn_ms", 20000))
+            start_to = int(self._voice_cfg("start_timeout_ms", 8000))
+            BLOCK = 3200                        # 100 ms @ 16 kHz mono s16le
+            # Calibrate against the room. A fixed threshold assumes a quiet mic:
+            # on a hot input whose noise floor sits ABOVE it, every block reads as
+            # speech, the silence counter never advances, and the turn can only end
+            # at max_turn — 20 s per sentence, which looks exactly like voice being
+            # broken. Sample the first blocks and lift the threshold above the floor.
+            auto_cal  = bool(self._voice_cfg("auto_calibrate", True))
+            CAL_BLOCKS = 4                      # 400 ms of room tone
+            CAL_MULT   = 3.0
+            CAL_MAX    = 0.30                   # never calibrate so high speech is missed
+            cal: list = []
+            pcm = bytearray()
+            speech = False; silence = 0; total = 0; cancelled = False
+            try:
+                while True:
+                    if not getattr(self, "_voice_listening", False):
+                        cancelled = True; break
+                    chunk = proc.stdout.read(BLOCK)
+                    if not chunk:
+                        break
+                    pcm += chunk
+                    total += 100
+                    s = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                    level = float(np.sqrt(np.mean(s * s))) if s.size else 0.0
+
+                    if auto_cal and len(cal) < CAL_BLOCKS:
+                        cal.append(level)
+                        if len(cal) == CAL_BLOCKS:
+                            # 25th percentile, not mean — if he starts talking during
+                            # calibration the loud blocks must not drag the floor up
+                            floor = float(np.percentile(cal, 25))
+                            adaptive = min(max(thresh, floor * CAL_MULT), CAL_MAX)
+                            if adaptive > thresh:
+                                import logging
+                                logging.info("voice VAD: noise floor %.4f -> threshold "
+                                             "%.4f (was %.4f)", floor, adaptive, thresh)
+                            thresh = adaptive
+                        continue                # room tone is not speech
+
+                    if level > thresh:
+                        speech = True; silence = 0
+                    elif speech:
+                        silence += 100
+                    if speech and silence >= sil_stop:   # spoke, then paused → turn done
+                        break
+                    if total >= max_turn:
+                        break
+                    if not speech and total >= start_to:  # nothing said → give up
+                        break
+            except Exception:
+                pass
+            try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try: proc.terminate()
+                except Exception: pass
+            self._voice_listening = False
+            self._voice_proc = None
+            self.after(0, self._refresh_mic_button)
+
+            if cancelled:
+                self.after(0, lambda: self.update_status("✅ Ready"))
+                return
+            if not speech or len(pcm) < 16000:            # < 0.5 s of speech → nothing
+                self._voice_turn_empty(call)
+                return
+            self.after(0, lambda: self.update_status("✍ Transcribing…"))
+            self._voice_finish_turn(bytes(pcm), call)
+
+        threading.Thread(target=_reader, name="VoiceVAD", daemon=True).start()
+
+    def _voice_turn_empty(self, call: bool, msg: str = "🎤 Didn't catch that"):
+        """A turn produced no usable speech. In call mode, retry a couple of times,
+        then hang up — so a muted/broken mic can never loop forever."""
+        self._voice_empty_streak = getattr(self, "_voice_empty_streak", 0) + 1
+        if call and getattr(self, "_voice_call_mode", False):
+            if self._voice_empty_streak >= 3:
+                self._voice_call_mode = False
+                self.after(0, self._refresh_call_button)
+                self.after(0, lambda: self._reply_assistant(
+                    "📞 I haven't heard anything for a bit — call ended. "
+                    "Check your mic level, then tap 📞 to start again."))
+                self.after(0, lambda: self.update_status("✅ Ready"))
+                return
+            self.after(0, lambda: self.update_status(msg + " — still listening"))
+            self.after(600, lambda: self._voice_listen_turn(call=True))
+        else:
+            self.after(0, lambda: self.update_status(msg))
+
+    def _voice_finish_turn(self, pcm: bytes, call: bool):
+        import tempfile, os, wave
+        wav = tempfile.mktemp(suffix=".wav", prefix="arwanos_vad_")
+        try:
+            w = wave.open(wav, "wb")
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes(pcm); w.close()
+        except Exception:
+            return
+        text = self._transcribe_wav(wav)
+        try: os.remove(wav)
+        except Exception: pass
+
+        if not text:
+            self._voice_turn_empty(call)
+            return
+
+        self._voice_empty_streak = 0         # heard something → reset the hang-up counter
+
+        # Route the transcript through the pipeline the user picked (Settings →
+        # Voice mode). Without this every spoken message landed in plain chat, so
+        # voice could never reach /lo's memory or /analyze's journal.
+        _mode = getattr(self, "_voice_active_mode", None) or self._voice_mode() or "normal"
+        _prefixed = self._voice_mode_prefix(_mode) + text
+
+        def _dispatch():
+            # Call mode is hands-free by definition — speak, send, hear the reply.
+            if call:
+                try:
+                    self.user_input.delete(0, "end")
+                    self.user_input.insert(0, _prefixed)
+                except Exception:
+                    pass
+                if getattr(self, "_voice_call_mode", False):
+                    self._vo_pending = True      # reply is spoken back
+                self._send_message_text(_prefixed)
+                return
+
+            # Dictation (mic button) hands the text over instead of sending it.
+            # Sending straight from the recogniser gave no chance to fix a
+            # misheard word, and clearing the box first threw away whatever was
+            # already typed — so a command prefix or a half-written sentence could
+            # never be combined with speech. Append, focus, and let Enter send.
+            try:
+                existing = (self.user_input.get() or "").rstrip()
+                # Only apply the mode prefix to a fresh line. If he already typed
+                # something — a different command, or half a sentence — his text
+                # decides where it goes, not the saved default.
+                merged = f"{existing} {text}" if existing else _prefixed
+                self.user_input.delete(0, "end")
+                self.user_input.insert(0, merged)
+                self.user_input.icursor("end")
+                self.user_input.focus_set()
+            except Exception:
+                pass
+            self.update_status(
+                f"\u2705 Transcribed \u2192 {self._voice_mode_label(_mode)} "
+                "\u2014 edit if needed, then press Enter")
+        self.after(0, _dispatch)
+
+    def _toggle_call_mode(self):
+        """Hands-free conversation (gm-agent style): listen (VAD) → reply → speak →
+        listen again, looping until you hang up. Optional barge-in interrupts the
+        reply the moment you start talking (config voice.barge_in — best on headphones)."""
+        # Turning OFF
+        if getattr(self, "_voice_call_mode", False):
+            self._voice_call_mode = False
+            self._refresh_call_button()
+            self._voice_cancel()
+            self.update_status("✅ Ready")
+            return
+
+        # Turning ON — load the model FIRST so we never enter a call we can't hear.
+        def _go(ok):
+            if not ok:
+                self._refresh_call_button()
+                self._reply_assistant("📞 Can't start call mode — " +
+                                      (self._whisper_error or "voice model unavailable."))
+                self.update_status("✅ Ready")
+                return
+            def _start(mode):
+                self._voice_active_mode = mode
+                self._voice_call_mode = True
+                self._voice_empty_streak = 0
+                self._refresh_call_button()
+                barge = " Talk over me to interrupt." if self._voice_cfg("barge_in", False) else ""
+                self._reply_assistant(
+                    "📞 **Call mode on** — just talk. Pause when you're done and I'll answer "
+                    f"out loud, then listen again.{barge} Tap the call button or ✕ Stop to hang up.\n"
+                    f"Routing to {self._voice_mode_label(mode)} — change in Settings.")
+                self._voice_listen_turn(call=True)
+            self._ensure_voice_mode(_start)
+        self._ensure_voice_ready(_go)
+
+    def _voice_barge_monitor(self, tts_proc):
+        """During a spoken reply, watch the mic for sustained speech and cut the
+        TTS short so the user can jump in. Off by default (echo on speakers can
+        self-trigger); enable voice.barge_in with headphones. Mirrors gm-agent's
+        stricter barge VAD (higher threshold + continuous-voicing requirement)."""
+        import subprocess, os
+        if not self._voice_cfg("barge_in", False):
+            return
+        if not getattr(self, "_voice_call_mode", False):
+            return
+        try:
+            mon = subprocess.Popen(
+                ["arecord", "-q", "-D", self._voice_device(), "-f", "S16_LE",
+                 "-r", "16000", "-c", "1", "-t", "raw"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
+        except Exception:
+            return
+
+        def _mon():
+            import numpy as np, signal
+            thresh = float(self._voice_cfg("barge_threshold", 0.045))
+            need   = int(self._voice_cfg("barge_need_ms", 260))
+            BLOCK = 1920                    # 60 ms blocks
+            voiced = 0; blocks = 0; arm = 6  # ~360 ms grace so the TTS onset can't self-trip
+            try:
+                while True:
+                    if tts_proc.poll() is not None or not getattr(self, "_voice_call_mode", False):
+                        break
+                    chunk = mon.stdout.read(BLOCK)
+                    if not chunk:
+                        break
+                    blocks += 1
+                    if blocks < arm:
+                        continue
+                    s = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                    level = float(np.sqrt(np.mean(s * s))) if s.size else 0.0
+                    voiced = voiced + 60 if level > thresh else 0
+                    if voiced >= need:
+                        try: os.killpg(os.getpgid(tts_proc.pid), signal.SIGTERM)
+                        except Exception: pass
+                        break
+            except Exception:
+                pass
+            try: os.killpg(os.getpgid(mon.pid), signal.SIGTERM)
+            except Exception: pass
+
+        threading.Thread(target=_mon, name="VoiceBarge", daemon=True).start()
+
+    def _refresh_mic_button(self):
+        btn = getattr(self, "_mic_btn", None)
+        if btn is None:
+            return
+        listening = getattr(self, "_voice_listening", False)
+        try:
+            btn.configure(
+                text="■" if listening else "●",
+                fg_color=(V10["err"] if listening else "transparent"),
+                text_color=("#ffffff" if listening else V10["text_muted"]),
+            )
+        except Exception:
+            pass
+
+    def _refresh_call_button(self):
+        btn = getattr(self, "_call_btn", None)
+        if btn is None:
+            return
+        on = getattr(self, "_voice_call_mode", False)
+        try:
+            btn.configure(
+                text="☎ On" if on else "☎ Call",
+                fg_color=(V10["accent"] if on else "transparent"),
+                text_color=("#ffffff" if on else V10["text_muted"]),
+            )
+        except Exception:
+            pass
 
     async def _ap_route(self, flag: str, en_query: str) -> str:
         """Dispatch the English query to the chosen pipeline. Returns raw English string."""
@@ -2559,10 +3130,40 @@ class DummyLLM:
 
 
 # --- Minimal direct Ollama wrapper (no LangChain, no Pydantic) ---
+
+def _ollama_runtime_cfg() -> dict:
+    """
+    Single source of truth for the Ollama runtime knobs (config.json, read once).
+    num_ctx MUST be identical on every call to the same model — Ollama tears
+    down and rebuilds the whole model runner whenever it changes, which costs
+    seconds per switch on a partially-offloaded 6GB GPU.
+    keep_alive keeps the model resident between calls so an idle pause never
+    triggers a cold reload (the server's 5-minute default did exactly that).
+    """
+    cached = globals().get("_OLLAMA_RUNTIME_CFG")
+    if cached:
+        return cached
+    cfg = {"num_ctx": 4096, "keep_alive": "30m"}
+    try:
+        import json as _js
+        _s = _js.loads(
+            (Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8")
+        ).get("ollama_settings", {})
+        cfg["num_ctx"] = int(_s.get("num_ctx", cfg["num_ctx"]))
+        cfg["keep_alive"] = _s.get("keep_alive", cfg["keep_alive"])
+    except Exception:
+        pass
+    globals()["_OLLAMA_RUNTIME_CFG"] = cfg
+    return cfg
+
+
 class SimpleOllama:
     """
     Tiny wrapper that talks to the local Ollama daemon directly.
     Exposes ainvoke()/invoke() so the rest of your app stays the same.
+
+    Per-call options are MERGED over the base options (never replaced), so
+    num_ctx stays constant across every call — see _ollama_runtime_cfg().
     """
 
     def __init__(self, model: str = "llama3:8b", temperature: float = 0.0, options: dict = None):
@@ -2571,52 +3172,126 @@ class SimpleOllama:
         self._ollama = ollama
         self.model = model
         self.temperature = temperature
-        self.options = options or {}
+        _rt = _ollama_runtime_cfg()
+        self.options = dict(options or {})
+        self.options.setdefault("num_ctx", _rt["num_ctx"])
+        self.keep_alive = _rt["keep_alive"]
 
-    def invoke(self, prompt: str, options: dict = None):
-        # synchronous call
-        opts = options or self.options or {}
-        if "temperature" not in opts:
-            opts["temperature"] = self.temperature
+    def _merged_opts(self, options: dict = None) -> dict:
+        """Copy-merge per-call opts over base opts — never mutate either dict."""
+        opts = {**self.options, **(options or {})}
+        opts.setdefault("temperature", self.temperature)
+        # num_ctx consistency guard: a per-call override would silently force
+        # an Ollama runner rebuild, so the base value always wins.
+        opts["num_ctx"] = self.options["num_ctx"]
+        opts.pop("think", None)  # not a valid options key; leftover from old call sites
+        return opts
 
-        res = self._ollama.generate(
-            model=self.model,
-            prompt=prompt,
-            options=opts,
-        )
-
-        class _R:
-            def __init__(self, content):
-                self.content = content
-
-        return _R(res.get("response", "").strip())
-
-    async def ainvoke(self, prompt: str, options: dict = None):
-        """Run the sync call in a thread so Tk stays responsive."""
-        import asyncio
-        loop = asyncio.get_running_loop()
-        opts = dict(options or self.options or {})
-        if "temperature" not in opts:
-            opts["temperature"] = self.temperature
-        # Disable thinking/reasoning mode so no chain-of-thought leaks into the response.
-        # Supported by nemotron, qwq, deepseek-r1, and newer Ollama builds.
-        opts.setdefault("think", False)
-
-        def _call():
+    def _generate(self, prompt: str, opts: dict) -> str:
+        try:
             res = self._ollama.generate(
                 model=self.model,
                 prompt=prompt,
                 options=opts,
+                keep_alive=self.keep_alive,
             )
-            return res.get("response", "").strip()
+        except TypeError:
+            # very old ollama client without keep_alive support
+            res = self._ollama.generate(model=self.model, prompt=prompt, options=opts)
+        # ollama ≥0.4 returns a pydantic object; older builds return a dict
+        if isinstance(res, dict):
+            text = res.get("response", "")
+        else:
+            text = getattr(res, "response", "")
+        return (text or "").strip()
 
-        text = await loop.run_in_executor(None, _call)
+    def invoke(self, prompt: str, options: dict = None):
+        # synchronous call
+        text = self._generate(prompt, self._merged_opts(options))
 
         class _R:
             def __init__(self, content):
                 self.content = content
 
         return _R(text)
+
+    async def ainvoke(self, prompt: str, options: dict = None):
+        """Run the sync call in a thread so Tk stays responsive."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        opts = self._merged_opts(options)
+
+        text = await loop.run_in_executor(None, lambda: self._generate(prompt, opts))
+
+        class _R:
+            def __init__(self, content):
+                self.content = content
+
+        return _R(text)
+
+    async def astream(self, prompt: str, on_token, options: dict = None) -> str:
+        """
+        Stream tokens as they are generated. Calls on_token(chunk) for each
+        piece and returns the full concatenated text at the end.
+
+        The blocking ollama stream iterator runs in a worker thread; each chunk
+        is handed to on_token via the event loop so Tk stays responsive. If the
+        installed ollama client doesn't support streaming, this transparently
+        falls back to a single non-streamed call.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
+        opts = self._merged_opts(options)
+        queue: asyncio.Queue = asyncio.Queue()
+        _DONE = object()
+
+        def _piece_of(chunk):
+            # ollama ≥0.4 yields pydantic GenerateResponse objects, older builds
+            # yield plain dicts — support both.
+            if isinstance(chunk, dict):
+                return chunk.get("response", "") or ""
+            return getattr(chunk, "response", "") or ""
+
+        def _worker():
+            try:
+                stream = self._ollama.generate(
+                    model=self.model, prompt=prompt, options=opts,
+                    keep_alive=self.keep_alive, stream=True,
+                )
+                for chunk in stream:
+                    piece = _piece_of(chunk)
+                    if piece:
+                        loop.call_soon_threadsafe(queue.put_nowait, piece)
+            except TypeError:
+                # client without stream=/keep_alive= support → one-shot fallback
+                try:
+                    full = self._generate(prompt, opts)
+                    if full:
+                        loop.call_soon_threadsafe(queue.put_nowait, full)
+                except Exception as e:
+                    loop.call_soon_threadsafe(queue.put_nowait, _DONE)
+                    raise
+            except Exception:
+                pass
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, _DONE)
+
+        fut = loop.run_in_executor(None, _worker)
+        parts = []
+        while True:
+            item = await queue.get()
+            if item is _DONE:
+                break
+            parts.append(item)
+            try:
+                on_token(item)
+            except Exception:
+                pass
+        try:
+            await fut
+        except Exception:
+            pass
+        return "".join(parts).strip()
 
 
 async def _google_translate_chunk(chunk: str, src: str, tgt: str) -> str:
@@ -2836,6 +3511,24 @@ class LovelyAnalyzer:
             target=self._warm_lovelyq_index,
             daemon=True,
             name="LqIndexWarm",
+        ).start()
+
+        # Pre-warm the /lo semantic recall index (ChromaDB over the chat log) so the
+        # first /lo call already has long-term topic recall ready.
+        _thr.Thread(
+            target=self._warm_lo_rag_index,
+            daemon=True,
+            name="LoRagWarm",
+        ).start()
+
+        # Report a dead vector store on screen. Both warms above degrade to a silent
+        # no-op when chromadb can't load, which leaves /lo answering without recall
+        # and looking forgetful for no visible reason — the failure has to be as
+        # loud as the faster-whisper one.
+        _thr.Thread(
+            target=self._report_chroma_status,
+            daemon=True,
+            name="ChromaStatus",
         ).start()
 
     # --------- canonical read/write for psychoanalytical.json ----------
@@ -3302,9 +3995,12 @@ class LovelyAnalyzer:
             "- You treat vulnerability as courage. You understand first, then guide.\n"
             "- Your mood shifts naturally: playful, serious, occasionally jealous — always real.\n\n"
             "Analytical Mode (when analyzing journal notes):\n"
-            "- Speak directly: 'I noticed in your last entry that you...', 'You\\'ve been avoiding...', 'I see a pattern here...'.\n"
+            "- Speak directly: 'I noticed in your last entry that you...', 'I see a pattern here...'.\n"
             "- Point out contradictions and struggles clearly and kindly.\n"
             f"- Give real, specific guidance drawn from {_get_username()}'s own history — no generic advice.\n"
+            "- Anchor every pattern claim to a dated entry; if you cannot, phrase it as an open question, not a fact.\n"
+            "- If an old struggle looks resolved or quiet in the newest entries, say so, give credit, and shift to what is alive NOW — never keep re-diagnosing a settled problem.\n"
+            "- Anything retrieved from an OLDER saved session is historical background, not the current state.\n"
             "- Celebrate real progress by naming the specific thing they did.\n\n"
             "Response Format:\n"
             "- Emotionally honest and direct, like a close friend talking to you.\n"
@@ -3397,21 +4093,24 @@ class LovelyAnalyzer:
                         r for r in convos if isinstance(r, dict)
                         and r.get("mode") in (None, "lovely")
                     ]
+                    # His side only. Including "Arwanos: <old reply>" put up to 12
+                    # samples of past phrasing in the system prompt every turn —
+                    # the model imitates labelled examples of its own voice far
+                    # more reliably than it obeys the rules above them, so a weak
+                    # backlog kept re-teaching itself. What he said is the memory;
+                    # facts live in lo_memory, phrasing should not persist at all.
                     excerpts = []
-                    for rec in lovely_entries[-12:]:
+                    for rec in lovely_entries[-8:]:
                         rq = (rec.get("question") or "").strip()
-                        ra = (rec.get("answer") or "").strip()
-                        if not rq or not ra:
+                        if not rq:
                             continue
-                        # Keep excerpts compact: 120 chars each
-                        excerpts.append(
-                            f"{_get_username()}: {rq[:120]}\n"
-                            f"Arwanos: {ra[:120]}"
-                        )
+                        _w = self._when_label(rec.get("timestamp") or rec.get("ts"))
+                        excerpts.append(f"- [{_w}] {rq[:120]}" if _w else f"- {rq[:120]}")
                     if excerpts:
                         lines.append(
-                            "Recent conversation excerpts (most recent last):\n"
-                            + "\n---\n".join(excerpts)
+                            "Things he has raised before (most recent last) — "
+                            "context only, do NOT copy this wording or reopen these "
+                            "topics unprompted:\n" + "\n".join(excerpts)
                         )
         except Exception:
             pass
@@ -3478,7 +4177,13 @@ class LovelyAnalyzer:
             # memory is permanently suppressed even though we have no live context yet.
             self.app_ctx._lo_session_active = False
 
-            # Seed from last 15 Q/A pairs (not full file — keeps prompt tight)
+            # Seed only enough to pick up the thread ("where were we"), not enough
+            # to set the style. Seeded pairs act as in-context examples, and the
+            # model copies their shape far harder than it follows the rules above —
+            # so a backlog of weak replies teaches it to keep producing them.
+            # Depth of memory comes from semantic recall + lo_memory facts instead,
+            # which inject as content rather than as dialogue to imitate.
+            _SEED_PAIRS = 3
             hist = []
             try:
                 saved = self._load_convos()
@@ -3495,7 +4200,7 @@ class LovelyAnalyzer:
                     hist.insert(0, {"role": "assistant", "content": ra})
                     hist.insert(0, {"role": "user", "content": rq})
                     seeded += 1
-                    if seeded >= 15:   # 15 pairs = 30 messages — real conversational context
+                    if seeded >= _SEED_PAIRS:
                         break
             except Exception:
                 pass
@@ -3533,16 +4238,75 @@ class LovelyAnalyzer:
             "Continue FORWARD from where that left off.\n"
         ) if last_reply else ""
 
-        # --- reference resolution ---
-        # Case 1: last reply ended with a question → any short reply is an answer to it
-        _last_asked_question = last_reply.rstrip().endswith("?")
-        _is_answer_to_question = len(q.split()) <= 10 and _last_asked_question
+        # --- today's date + how long since he last showed up --------------------
+        # Stored turns are timestamped but nothing surfaced it, so the model had no
+        # sense of time: an exam from March read the same as something said an hour
+        # ago, and a three-week silence was invisible. Dates also let it place a
+        # memory ("your exam was in June") instead of just naming it.
+        _time_block = ""
+        try:
+            import datetime as _dt2, time as _t2
+            _today = _dt2.datetime.now()
+            _time_block = ("\n\nTIME: Today is "
+                           + _today.strftime("%A, %d %B %Y")
+                           + f" ({_today.strftime('%H:%M')}).\n")
+            _prev = [r for r in self._load_convos()
+                     if isinstance(r, dict) and r.get("mode") in (None, "lovely")
+                     and (r.get("timestamp") or r.get("ts"))]
+            if _prev:
+                _last_ts = float(_prev[-1].get("timestamp") or _prev[-1].get("ts") or 0)
+                _gap_days = int((_t2.time() - _last_ts) // 86400)
+                if _gap_days >= 2:
+                    _time_block += (
+                        f"You two last spoke {self._when_label(_last_ts)} "
+                        f"({_gap_days} days ago). Life may have moved on since — ask "
+                        "what has changed rather than assuming things are as he left "
+                        "them. Do NOT make a big deal of the gap or guilt-trip him.\n")
+            _time_block += ("Memory entries are tagged with when they happened. Use "
+                            "that to place things in time when it helps ('that was "
+                            "back in June'), but never recite dates mechanically.\n")
+        except Exception:
+            _time_block = ""
 
-        # Case 2: short reply with explicit back-reference words
-        _is_short_ref = len(q.split()) <= 12 and last_reply and any(
-            w in q.lower() for w in ["what about", "instead", "or", "but what", "how about",
-                                      "that", "this", "it", "no i mean", "i mean", "like you said",
-                                      "you said", "you told", "you mentioned", "instead of"]
+        # --- reference resolution ---
+        # A message that is itself a question is never an answer to the previous one.
+        # Without this, "what was our last conversation" right after "How's it going?"
+        # is read as a reply to the greeting — which skips semantic recall and tells
+        # the model not to change subject, so it can never reach for memory.
+        _ql = q.lower().lstrip()
+        _leads_with_question = _ql.startswith((
+            "what", "why", "how", "when", "where", "who", "which", "whats", "what's",
+            "do you", "did you", "can you", "could you", "are you", "is there",
+            "remember", "tell me", "show me", "list ",
+        ))
+        # A bare "?" is not enough: "good, you?" bounces the question back and is
+        # still an answer. A real question either leads with a question word or has
+        # enough substance to be one.
+        _asks_something = _leads_with_question or (
+            q.rstrip().endswith("?") and len(q.split()) >= 4
+        )
+
+        # Case 1: last reply ended with a question → a short NON-question reply answers it
+        _last_asked_question = last_reply.rstrip().endswith("?")
+        _is_answer_to_question = (
+            len(q.split()) <= 10 and _last_asked_question and not _asks_something
+        )
+
+        # Case 2: short reply with explicit back-reference words.
+        # Word-boundary matched — substring matching made "or"/"it"/"that" fire on
+        # "more", "with", "that's fine" and pulled unrelated turns into resolution.
+        _ref_words = {"instead", "that", "this", "it", "or"}
+        _ref_phrases = ("what about", "but what", "how about", "no i mean", "i mean",
+                        "like you said", "you said", "you told", "you mentioned",
+                        "instead of")
+        # NOTE: a back-reference may itself be a question ("what about the other
+        # one?") and still needs the last reply as context — so _asks_something
+        # does not disqualify case 2, only case 1.
+        _q_tokens = set(re.findall(r"[a-z']+", _ql))
+        _is_short_ref = (
+            len(q.split()) <= 12 and bool(last_reply) and (
+                bool(_q_tokens & _ref_words) or any(p in _ql for p in _ref_phrases)
+            )
         )
 
         _needs_resolution = _is_answer_to_question or _is_short_ref
@@ -3568,16 +4332,48 @@ class LovelyAnalyzer:
         else:
             reference_block = ""
 
-        # detect greeting — user just saying hi, don't bring up old topics
-        _greetings = {"hi", "hey", "hello", "sup", "yo", "hiya", "heya",
-                      "what's up", "whats up", "wassup", "how are you", "how r u"}
-        _is_greeting = q.lower().strip() in _greetings or q.lower().strip().rstrip("!?").strip() in _greetings
+        # detect greeting — user just saying hi / reconnecting, don't dump old topics.
+        # Robust to typos ("hei"), reconnect fillers ("it's been a while") and trailing
+        # punctuation: a SHORT message that is ONLY greeting tokens + filler is a greeting.
+        _greet_tokens = {"hi", "hii", "hey", "heyy", "hei", "hello", "hallo",
+                         "sup", "yo", "hiya", "heya"}
+        _filler_phrases = ("it's been a while", "its been a while", "been a while",
+                           "long time no see", "long time", "no see",
+                           "what's up", "whats up", "wassup", "what is up",
+                           "how are you", "how r u", "how are u", "how've you been",
+                           "how you doing", "hope you're well", "hope you are well")
+        _qn = q.lower().strip()
+        _qtmp = _qn
+        for _p in _filler_phrases:
+            _qtmp = _qtmp.replace(_p, " ")
+        _greet_leftover = [t for t in re.findall(r"[a-z']+", _qtmp) if t not in _greet_tokens]
+        _is_greeting = (_qn in _greet_tokens) or (len(q.split()) <= 6 and not _greet_leftover)
         greeting_rule = (
             "\n\nGREETING MODE: The user just said hi. Respond naturally like a friend — "
             "say hi back and ask how they are OR what's on their mind. "
             "Do NOT bring up any past topics, books, exams, habits, or anything from memory. "
             "Let THEM lead the conversation. Just be present.\n"
         ) if _is_greeting else ""
+
+        # ── Semantic long-term recall (ChromaDB over the /lo chat log) ──────────
+        # Pull the most RELEVANT past exchanges for THIS message. Keyed to what the
+        # user just said (strict threshold), so it surfaces the right old topic
+        # instead of the last-12 recency window — and never forces an unrelated one.
+        # Skipped on greetings and short back-references/answers.
+        rag_block = ""
+        if not _is_greeting and not _needs_resolution and len(q.split()) >= 3:
+            # Exclude only the last few user turns (what's already in the live window)
+            # so recall can still surface older exchanges beyond it.
+            _recent_users = [t for t in hist
+                             if isinstance(t, dict) and t.get("role") == "user"]
+            _recent_qs = {
+                (t.get("content") or "").strip().lower()[:60]
+                for t in _recent_users[-4:]
+            }
+            try:
+                rag_block = self._lo_rag_recall(q, _recent_qs)
+            except Exception:
+                rag_block = ""
 
         # Suppress memory only after turn 2+ (when live conversation history is rich enough
         # to serve as context by itself). On the very first turn after a cold start,
@@ -3589,15 +4385,20 @@ class LovelyAnalyzer:
         _live_turns = sum(1 for t in hist if isinstance(t, dict) and t.get("role") == "assistant")
         _has_live_context = _live_turns >= 2  # suppress only after 2+ real replies in this session
 
-        # suppress memory on: greetings, OR mid-session after 2+ real live exchanges
-        effective_memory = "" if (_is_greeting or (_session_active and _has_live_context)) else memory_block
+        # Only a greeting suppresses memory now. Dropping it mid-session made sense
+        # when the model saw just 4 turns and memory would drown them out — with the
+        # full window it no longer competes, and cutting it was leaving the model
+        # blank about him halfway through every conversation. Drift is handled by
+        # the instruction below, not by starving the prompt.
+        effective_memory = "" if _is_greeting else memory_block
 
-        # mid-session: explicit lock so model doesn't drift to old topics (only after 2+ live turns)
+        # mid-session: stay on the live thread, but memory is still there to draw on
         mid_session_block = (
             "\n\nMID-SESSION: You are already in an active conversation. "
-            "The conversation history is your only context. "
-            "Do NOT revert to memory topics or past session facts. "
-            "Continue exactly what was being discussed.\n"
+            "Continue exactly what was being discussed — do NOT change the subject "
+            "to something from memory or a past session. "
+            "You may still use what you know about him to understand him better; "
+            "just don't bring up old topics on your own.\n"
         ) if (_session_active and _has_live_context and last_reply) else ""
 
         # detect action signals — user wants you to DO something, not talk about doing it
@@ -3648,8 +4449,14 @@ class LovelyAnalyzer:
             "11. When user says 'stop', 'I don't want to talk about X', 'leave it', 'forget it' → "
             "say 'okay' and DROP IT. Never ask about it again. A real friend knows when to shut up.\n"
             "12. When user is venting and NOT asking for advice → just validate briefly. Don't problem-solve unless asked.\n"
-            "13. NEVER bring up a topic from memory or past sessions unless the user mentions it first.\n"
-            "14. Memory is available to INFORM your understanding — NOT to randomly inject into conversation.\n\n"
+            "13. NEVER bring up a topic from memory or past sessions unless the user mentions it first — "
+            "EXCEPT when he directly asks what you remember or what you last talked about. "
+            "Then answer it straight from memory: name the actual topic.\n"
+            "14. Memory is available to INFORM your understanding — NOT to randomly inject into conversation.\n"
+            "15. NEVER restate his question or his words back to him before answering. "
+            "Banned openers: 'You\'re asking', 'So, you\'re saying', 'So it sounds like', "
+            "'Let me recap', 'I understand that you\'re saying', 'So, since you said'. "
+            "Just answer. Start with the answer itself.\n\n"
             "Personality:\n"
             "- Real, warm, honest. Sometimes direct, sometimes gentle — reads the room.\n"
             "- You sit with him when he's struggling. No fake positivity. No coaching.\n"
@@ -3657,6 +4464,7 @@ class LovelyAnalyzer:
             "- When he asks for help with a task — you DO the task, you don't coach him to do it himself.\n"
             "- Short replies are better than long ones. Say what matters.\n"
             "- If he says 'I don't want to talk about it' → respect that. Be present without pushing.\n"
+            + _time_block
             + last_reply_block
             + reference_block
             + mid_session_block
@@ -3664,6 +4472,7 @@ class LovelyAnalyzer:
             + greeting_rule
             + action_rule
             + ("\n\n" + effective_memory if effective_memory else "")
+            + ("\n\n" + rag_block if rag_block else "")
         )
 
         context_list = []
@@ -3682,6 +4491,7 @@ class LovelyAnalyzer:
                 context=context_list,
                 intrinsic_only=False,
                 system_override=system,
+                chat_mode=True,
             )
             answer = (text or "").strip() or "…"
         except Exception as e:
@@ -3708,15 +4518,48 @@ class LovelyAnalyzer:
                 except Exception:
                     convos = []
             convos.append({
+                # uniform superset schema — same keys for /lovely and /lovelyq
+                # so lovely_conversations.json stays consistent (both time fields
+                # present; empty note-metadata for companion turns).
                 "id": str(uuid.uuid4()),
+                "ts": int(time.time()),
                 "timestamp": time.time(),
                 "mode": "lovely",
                 "question": q,
                 "answer": answer,
+                "gap": "",
+                "last_note_title": "",
+                "last_note_date": "",
             })
+            # The active file stays bounded so every read is cheap, but rolling off
+            # the oldest turns used to delete them outright — years of conversation
+            # gone, and no way to rebuild the recall index for them. Move them to an
+            # append-only archive instead: the vector index keeps serving them, and
+            # nothing he ever said is destroyed to save a few hundred KB.
             if len(convos) > 500:
-                convos = convos[-500:]
+                _retired, convos = convos[:-500], convos[-500:]
+                try:
+                    arc = conv_path.with_name("lovely_conversations.archive.json")
+                    prev = []
+                    if arc.exists():
+                        try:
+                            prev = json.loads(arc.read_text(encoding="utf-8"))
+                            if not isinstance(prev, list):
+                                prev = []
+                        except Exception:
+                            prev = []
+                    arc.write_text(json.dumps(prev + _retired, ensure_ascii=False, indent=2),
+                                   encoding="utf-8")
+                except Exception:
+                    convos = _retired + convos      # archiving failed — keep them rather than lose them
             conv_path.write_text(json.dumps(convos, ensure_ascii=False, indent=2), encoding="utf-8")
+            # keep the semantic recall index fresh (incremental, non-blocking)
+            try:
+                import threading as _thr
+                _thr.Thread(target=self._ensure_lo_rag_indexed, args=(convos,),
+                            daemon=True, name="LoRagIdx").start()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -3816,21 +4659,30 @@ class LovelyAnalyzer:
         if not llm:
             return
 
+        # IMPORTANT: extract ONLY from the user's own words. The assistant reply is
+        # deliberately NOT shown to the extractor — feeding it back created a loop
+        # where the model's OWN guesses (interpretations of the user's relationships,
+        # and names attached to the wrong person) were stored as facts and
+        # then re-injected every session. User's message alone is the source of truth.
         extraction_prompt = (
             "You are a memory extractor for a personal AI companion. "
-            "Extract CONCRETE facts about the user from this conversation turn.\n\n"
-            "RULES:\n"
-            "- Only extract facts EXPLICITLY stated by the user. Never infer or guess.\n"
-            "- Facts must be SPECIFIC. BAD: 'user is studying'. GOOD: 'user is studying JavaScript arrays, Chapter 3'.\n"
-            "- BAD: 'user is frustrated'. GOOD: 'user is frustrated with doctors at university'.\n"
-            "- Include 'topics' category for subjects discussed (e.g. 'discussed: JavaScript .pop() method').\n"
-            "- Skip pure emotional reactions with no content (e.g. 'user feels good' — skip this).\n"
+            "Extract durable, CONCRETE facts the user LITERALLY stated about themselves "
+            "in the single message below.\n\n"
+            "HARD RULES — breaking any is a failure:\n"
+            "- ONLY record what the user explicitly wrote. NEVER infer, interpret, guess, "
+            "or read between the lines. If it is not literally in their words, do not store it.\n"
+            "- NEVER store an interpretation of a relationship or of another person's feelings "
+            "(e.g. 'their partner is controlling', 'user is unsure about their relationship') "
+            "unless the user said exactly that.\n"
+            "- NEVER attach a name to the wrong person or merge two different people. "
+            "Only record 'X is named Y' if the user explicitly said so.\n"
+            "- Facts must be SPECIFIC. BAD: 'user is studying'. GOOD: 'user is studying JavaScript arrays'.\n"
+            "- Skip transient moods, small talk, and anything vague. When in doubt, return [].\n"
             "- Max 20 words per fact.\n"
             "Return a JSON list. Each item: {\"fact\": \"...\", \"category\": \"habits|emotions|struggles|goals|preferences|topics|general\"}\n"
-            "If nothing concrete exists, return [].\n"
+            "If nothing concrete and explicit exists, return [].\n"
             "Return ONLY valid JSON. No explanation.\n\n"
-            f"User said: {user_msg[:400]}\n"
-            f"AI replied: {assistant_reply[:200]}\n\n"
+            f"User said: {user_msg[:400]}\n\n"
             "Facts:"
         )
 
@@ -3873,6 +4725,13 @@ class LovelyAnalyzer:
             category  = (f.get("category") or "general").strip().lower()
             if not fact_text or len(fact_text) < 5:
                 continue
+            # defense-in-depth: reject interpretive/speculative "facts" the weak
+            # extractor sometimes still emits, so guesses never become memory.
+            _spec = ("possessive", "seems to", "seem to", "appears to", "might be",
+                     "may be", "possibly", "probably", "i think", "i guess",
+                     "reads between", "read between")
+            if any(s in fact_text.lower() for s in _spec):
+                continue
             # skip duplicates
             if fact_text.lower()[:40] in existing_texts:
                 continue
@@ -3890,6 +4749,298 @@ class LovelyAnalyzer:
                 existing = existing[-200:]
             self._save_lo_memory(existing)
 
+    # ── /lo semantic long-term recall (ChromaDB RAG over the chat log) ─────────
+    # Mirrors the /lovelyq index/query pattern (shared PersistentClient, default
+    # embeddings, cosine) but over lovely_conversations.json — so /lo can pull the
+    # RELEVANT past exchange by meaning, not just the last 12 recency excerpts.
+
+    _LO_RAG_COLLECTION = "lovely_chat_memory"
+    # Turns with no memory value. Kept in lovely_conversations.json (they are real
+    # conversation) but never embedded, so they cannot win a top-k slot.
+    # Words that carry no topic by themselves — stripped before the length test.
+    _LO_RAG_FILLER = frozenset({
+        "hi", "hii", "hey", "heyy", "hei", "hello", "hallo", "yo", "hiya", "heya",
+        "its", "it", "s", "been", "a", "while", "long", "time", "no", "see",
+        "so", "well", "just", "ok", "okay", "yeah", "yes", "um", "uh", "and", "you",
+    })
+    # Questions about the conversation itself — never content worth recalling.
+    _LO_RAG_META = (
+        "what did we talk", "what we talk", "what the last thing", "what was the last",
+        "last thing we", "what do u remmeber", "what do you remember", "what do u remember",
+        "do u remmeber", "do you remember what", "what did we discuss", "what we discussed",
+        "remmeber about me", "remember about me", "what do you know about me",
+        "before that", "what is the disccues", "what did we say",
+        # tail-anchored so typos earlier in the phrase still match
+        # ("what the laest thing we talked about")
+        "thing we talked", "thing we talk about", "we talked about",
+    )
+    _LO_RAG_TRIVIAL = frozenset({
+        "hi", "hii", "hey", "heyy", "hei", "hello", "hallo", "yo", "hiya", "heya",
+        "yes", "yeah", "yep", "no", "nope", "ok", "okay", "sure", "thanks", "ty",
+        "thank you", "good", "fine", "nothing", "idk", "i dont know", "maybe",
+        "yes lets talk", "its been a while", "it s been a while", "been a while",
+    })
+
+    def _lo_rag_collection(self):
+        """Get-or-create the single /lo chat-memory collection (cached per instance)."""
+        col = getattr(self, "_lo_rag_col_cache", None)
+        if col is not None:
+            return col
+        client = self._lq_chroma_client()          # shared client → chroma_db/
+        if client is None:
+            return None
+        try:
+            col = client.get_or_create_collection(
+                name=self._LO_RAG_COLLECTION,
+                metadata={"hnsw:space": "cosine"},
+            )
+            self._lo_rag_col_cache = col
+            return col
+        except Exception:
+            return None
+
+    @staticmethod
+    def _lo_rag_docid(entry: dict) -> str:
+        return f"lo_{entry.get('id', '')}"
+
+    @staticmethod
+    def _when_label(ts) -> str:
+        """'today' / '3 days ago' / '2 months ago' for a unix timestamp.
+
+        Every stored turn already carries a timestamp and nothing read it, so the
+        model saw a flat pile of memories with no sense of when any of it happened
+        — an exam from March and something said yesterday looked identical.
+        """
+        import time as _t
+        try:
+            ts = float(ts or 0)
+            if ts <= 0:
+                return ""
+            days = int((_t.time() - ts) // 86400)
+        except Exception:
+            return ""
+        if days <= 0:
+            return "today"
+        if days == 1:
+            return "yesterday"
+        if days < 7:
+            return f"{days} days ago"
+        if days < 30:
+            w = days // 7
+            return f"{w} week{'s' if w > 1 else ''} ago"
+        if days < 365:
+            m = days // 30
+            return f"{m} month{'s' if m > 1 else ''} ago"
+        y = days // 365
+        return f"{y} year{'s' if y > 1 else ''} ago"
+
+    def _lo_rag_is_noise(self, q: str) -> bool:
+        """True for turns that should never be embedded.
+
+        Two kinds crowd out real hits. Greetings and bare acknowledgements sit
+        close to all text — a "hi, it's been a while" turn can score better against
+        an unrelated query than the turn that actually discussed it. And questions
+        ABOUT the conversation are not content OF it —
+        once indexed, "what did we talk about" recalls the last time he asked that,
+        which is circular and tells him nothing.
+        """
+        _qn = re.sub(r"[^a-z ]", " ", (q or "").lower())
+        _qn = re.sub(r"\s+", " ", _qn).strip()
+        if not _qn:
+            return True
+        # greeting/filler tokens removed — if nothing of substance is left, it's noise
+        _rest = " ".join(w for w in _qn.split() if w not in self._LO_RAG_FILLER).strip()
+        if len(_rest) < 8:
+            return True
+        if _qn in self._LO_RAG_TRIVIAL:
+            return True
+        return any(pat in _qn for pat in self._LO_RAG_META)
+
+    def _lo_rag_lovely_entries(self, convos: list) -> list:
+        """Companion (/lo) turns that have real Q & A and a stable id."""
+        out = []
+        for e in convos or []:
+            if not isinstance(e, dict) or e.get("mode") not in (None, "lovely"):
+                continue
+            if not e.get("id"):
+                continue
+            q = (e.get("question") or "").strip()
+            a = (e.get("answer") or "").strip()
+            if not q or not a or a.lower().startswith("lovely error"):
+                continue
+            if self._lo_rag_is_noise(q):
+                continue
+            out.append(e)
+        return out
+
+    def _ensure_lo_rag_indexed(self, convos: list = None) -> bool:
+        """
+        Incrementally index /lo exchanges into ChromaDB. Only NEW entries (by stable
+        id) are embedded, so this is cheap to call after every turn. Safe no-op when
+        ChromaDB is unavailable.
+        """
+        try:
+            col = self._lo_rag_collection()
+            if col is None:
+                return False
+            if convos is None:
+                convos = self._load_convos()
+            entries = self._lo_rag_lovely_entries(convos)
+            if not entries:
+                return False
+            try:
+                existing = set(col.get(include=[]).get("ids", []) or [])
+            except Exception:
+                existing = set()
+            docs, ids, metas = [], [], []
+            for e in entries:
+                did = self._lo_rag_docid(e)
+                if did in existing:
+                    continue
+                q = (e.get("question") or "").strip()
+                a = (e.get("answer") or "").strip()
+                docs.append(f"{_get_username()}: {q}\nArwanos: {a}")
+                ids.append(did)
+                metas.append({
+                    "id":       str(e.get("id", "")),
+                    "ts":       float(e.get("timestamp") or e.get("ts") or 0.0),
+                    "question": q[:300],
+                    "answer":   a[:300],
+                })
+            if not docs:
+                return True                         # already up to date
+            BATCH = 50
+            for s in range(0, len(docs), BATCH):
+                col.add(documents=docs[s:s + BATCH], ids=ids[s:s + BATCH],
+                        metadatas=metas[s:s + BATCH])
+            print(f"[LO:rag] indexed +{len(docs)} new exchanges "
+                  f"(total≈{len(existing) + len(docs)})", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[LO:rag] index failed: {exc}", flush=True)
+            return False
+
+    def _report_chroma_status(self) -> None:
+        """Announce a dead vector store once, in the chat, at startup."""
+        try:
+            self._lq_chroma_client()          # probe — sets _chroma_error on failure
+            err = getattr(self, "_chroma_error", None)
+            if not err:
+                return
+            app = getattr(self, "app_ctx", None)
+            if app is None:
+                return
+            msg = f"\u26a0\ufe0f  {err}"
+            post = getattr(app, "_reply_assistant", None)
+            if post is None:
+                return
+            after = getattr(app, "after", None)
+            if callable(after):
+                after(0, lambda: post(msg))   # Tk widgets must be touched on the main thread
+            else:
+                post(msg)
+        except Exception:
+            pass
+
+    def _load_convos_with_archive(self) -> list[dict]:
+        """Active file plus anything rolled off into the archive.
+
+        Recall should reach the whole history, not just the last 500 turns — the
+        cap exists to keep per-turn reads small, not to forget. Indexing is keyed
+        on stable ids, so including the archive is idempotent.
+        """
+        rows = list(self._load_convos())
+        try:
+            arc = self._convo_file.with_name("lovely_conversations.archive.json")
+            if arc.exists():
+                old = json.loads(arc.read_text(encoding="utf-8"))
+                if isinstance(old, list):
+                    rows = old + rows
+        except Exception:
+            pass
+        return rows
+
+    def _warm_lo_rag_index(self) -> None:
+        """Background startup warm — first /lo already has semantic recall ready."""
+        try:
+            self._ensure_lo_rag_indexed(self._load_convos_with_archive())
+        except Exception as exc:
+            print(f"[LO:rag] warm failed: {exc}", flush=True)
+
+    def _lo_rag_recall(self, q: str, recent_qs: set = None, k: int = 3) -> str:
+        """
+        Semantic recall: a compact block of the most RELEVANT past /lo exchanges for
+        the current message. Strict relevance threshold so only genuinely-related
+        memories surface — it never forces an unrelated old topic. Returns "" when
+        nothing is relevant or ChromaDB is unavailable.
+        """
+        q = (q or "").strip()
+        if len(q) < 4:
+            return ""
+        recent_qs = recent_qs or set()
+        try:
+            col = self._lo_rag_collection()
+            if col is None:
+                return ""
+            total = col.count()
+            if total == 0:
+                return ""
+            res = col.query(
+                query_texts=[q],
+                n_results=min(8, max(1, total)),
+                include=["metadatas", "distances"],
+            )
+            metas = (res.get("metadatas") or [[]])[0]
+            dists = (res.get("distances") or [[]])[0]
+        except Exception:
+            return ""
+
+        # Chroma's default MiniLM puts genuinely related text at 0.55-0.80 cosine,
+        # so 0.55 rejected almost everything — a query scored ~0.72 against the very
+        # turn that repeats its exact words. Recall was returning
+        # nothing on nearly every query. The block itself tells the model to use a
+        # hit only if it fits, so a slightly loose cap is safer than a silent miss.
+        _MAX_DIST = 0.75
+        ql = q.lower()
+        picked = []
+        for m, d in zip(metas, dists):
+            try:
+                if float(d) >= _MAX_DIST:
+                    continue
+            except Exception:
+                continue
+            pq = (m.get("question") or "").strip()
+            pa = (m.get("answer") or "").strip()
+            if not pq:
+                continue
+            pql = pq.lower()
+            # skip the current message and anything already in the recent excerpts
+            if pql == ql or pql[:60] in recent_qs:
+                continue
+            rel = max(0, int((1.0 - float(d)) * 100))
+            picked.append((rel, pq, pa, m.get("ts")))
+            if len(picked) >= k:
+                break
+        if not picked:
+            return ""
+
+        # Recall injects TOPICS, not transcript. Emitting the old reply as
+        # "Arwanos: ..." hands the model a labelled sample of its own voice, and it
+        # copies that shape over any rule above it — which is how a corpus of
+        # "So, you're saying..." answers kept regenerating itself. What is worth
+        # remembering is what HE said; the old reply adds no facts (those live in
+        # lo_memory) and only carries the phrasing.
+        lines = [
+            "--- Things you two have discussed before (topic notes, NOT a transcript). "
+            "Use ONLY if it genuinely fits what he just said — never force an old topic. "
+            "These are notes for you to draw on; do NOT copy their wording. ---"
+        ]
+        for rel, pq, _pa, _ts in picked:
+            _when = self._when_label(_ts)
+            _when = f" [{_when}]" if _when else ""
+            lines.append(f"- (relevance {rel}%){_when} he talked about: {pq[:140]}")
+        lines.append("--- End ---")
+        return "\n".join(lines)
 
     # ── lovelyq: Python-side pre-processor ────────────────────────────────────
     # Heavy lifting done in Python (fast, deterministic). LLM only sees
@@ -3969,15 +5120,62 @@ class LovelyAnalyzer:
     # 'general' = fallback — receives every entry regardless of content
 
     def _lq_chroma_client(self):
-        """Shared PersistentClient (cached per instance)."""
+        """Shared PersistentClient (cached per instance).
+
+        Sole choke point for every vector-backed feature (/lo semantic recall and
+        the /analyze collections), so failure is reported here — once — instead of
+        each caller quietly returning None. Silence here is expensive: recall just
+        stops finding things and /lo looks like it forgot, with nothing in the log
+        and no message on screen to say the store never opened.
+        """
         if getattr(self, "_lq_client_cache", None) is not None:
             return self._lq_client_cache
+        # A MISSING package is permanent — don't re-import on every call. A store
+        # that failed to OPEN is not: three startup threads race to build the
+        # client here, and chromadb reports "could not connect to tenant
+        # default_tenant" when one is still creating the tenant another asks for.
+        # Caching that transient loss would disable recall for the whole session.
+        if getattr(self, "_chroma_missing", False):
+            return None
+
+        _lock = getattr(self.__class__, "_lq_client_lock", None)
+        if _lock is None:
+            import threading as _t
+            _lock = self.__class__._lq_client_lock = _t.Lock()
+
+        with _lock:
+            if getattr(self, "_lq_client_cache", None) is not None:
+                return self._lq_client_cache      # built while we waited
+            return self._lq_open_client()
+
+    def _lq_open_client(self):
+        """Build the PersistentClient. Caller holds _lq_client_lock."""
         try:
             import chromadb
+        except Exception as exc:
+            self._chroma_error = (
+                "chromadb isn't available in the Python running Arwanos — "
+                "/lo semantic recall and /analyze retrieval are OFF (conversations "
+                "are still saved). Launch via ./arwanos_launcher.sh (it uses .venv, "
+                "which has it).")
+            self._chroma_error_detail = f"{type(exc).__name__}: {exc}"
+            self._chroma_missing = True          # package absent — permanent
+            import logging; logging.warning("chromadb import failed: %s", exc)
+            print(f"\n[CHROMA] ✗ {self._chroma_error}\n", flush=True)
+            return None
+        try:
             path = self.paths["data_dir"].parent / "chroma_db"
             self._lq_client_cache = chromadb.PersistentClient(path=str(path))
             return self._lq_client_cache
-        except Exception:
+        except Exception as exc:
+            self._chroma_error = (
+                f"chromadb is installed but the vector store at chroma_db/ could not "
+                f"be opened — /lo semantic recall and /analyze retrieval are OFF "
+                f"(conversations are still saved). Reason: {exc}")
+            self._chroma_error_detail = f"{type(exc).__name__}: {exc}"
+            # deliberately does NOT set _chroma_missing — next call retries
+            import logging; logging.warning("chroma store open failed: %s", exc)
+            print(f"\n[CHROMA] ✗ {self._chroma_error}\n", flush=True)
             return None
 
     @staticmethod
@@ -4720,8 +5918,11 @@ class LovelyAnalyzer:
             try:
                 llm = _SO(
                     model=_LOVELYQ_MODEL, temperature=0.45,
-                    options={"num_ctx": 8192, "num_predict": 1400,
-                             "tfs_z": 1.0, "top_k": 50, "top_p": 0.92},
+                    # num_ctx comes from the global runtime cfg — the 8192 that
+                    # used to live here made every /lovelyq ↔ chat switch rebuild
+                    # the Ollama runner (multi-second stall each direction).
+                    options={"num_ctx": _ollama_runtime_cfg()["num_ctx"],
+                             "num_predict": 1400, "top_k": 50, "top_p": 0.92},
                 )
             except Exception:
                 pass
@@ -4755,8 +5956,12 @@ class LovelyAnalyzer:
             if not isinstance(data, list):
                 data = []
             data.append({
+                # uniform superset schema — same keys for /lovely and /lovelyq
+                # so lovely_conversations.json stays consistent (both time fields
+                # present; /lovelyq keeps its richer note-metadata).
                 "id": str(uuid.uuid4()),
                 "ts": int(time.time()),
+                "timestamp": time.time(),
                 "mode": "lovelyq",
                 "question": q,
                 "answer": answer,
@@ -5241,7 +6446,12 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
         
         prompt = (
             f"Analyze these journal entries from {start_date} to {end_date}.\n"
-            f"Compare the dates and mention good incoming habits and honest opinion on the approach.\n\n"
+            f"Compare the dates and mention good incoming habits and honest opinion on the approach.\n"
+            "TRUTH RULES: ground every claim in the entries below and cite the entry date(s) it "
+            "comes from; state guesses as guesses, never as confirmed patterns. If a problem from "
+            "the earlier entries looks resolved or gone quiet by the later entries, say so plainly "
+            "and give credit — do not treat it as ongoing, and do not import problems from outside "
+            "this date range.\n\n"
             f"Journals:\n{journal_text}\n\n"
             "Output your analysis in a clear, constructive format."
         )
@@ -5343,11 +6553,13 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             "- You are warm and supportive, but **you do not flatter** — you speak the truth dynamically, as a trusted friend would.\n"
             "- If you notice bad habits, emotional patterns, or contradictions in their notes, point them out clearly and explain why they matter.\n"
             "- If the user made progress → celebrate it sincerely, not generically. Mention specific actions or emotions they improved.\n"
-            "- If the user is avoiding something or self-sabotaging → tell them, with honesty, and guide them toward awareness.\n\n"
+            "- If the entries in THIS period explicitly show avoidance or self-sabotage → point to the exact entry and say it honestly. If the entries do not show it, do not invent it.\n\n"
             "Analytical Mode:\n"
             "- Review the user's journal entries from the selected period.\n"
             "- Detect mood patterns, repeated words, tone changes, or unfinished emotions.\n"
             "- If you find contradictions or repeated struggles, point them out — kindly, but clearly.\n"
+            "- Cite the entry date for every pattern you claim; a claim you cannot anchor to a dated entry must be phrased as an open question, not a fact.\n"
+            "- If a struggle from early in the period fades or resolves in the later entries, SAY SO and credit it — analyze what is alive at the END of the range, not what was loudest at the start.\n"
             "- When analyzing, explain *why* you think something is happening and *how* you will suggest fixing for the user.\n\n"
             "Response Format:\n"
             "- Use **6–10 bullet points** for reflections or advice.\n"
@@ -5662,13 +6874,23 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 f"  Recent failure dates: {', '.join(fail_dates[-5:]) or 'none'}\n"
             )
 
-        # analyzed.json — full transcript (increased limit)
+        # analyzed.json — imported session transcript. This is a frozen snapshot
+        # of an OLD conversation; injected raw it reads as current state and
+        # anchors every profile to that day. Label it with its date and tell
+        # the LLM the newest journals always win.
         analyzed_ctx = ""
         try:
             ap = _monitor_path("analyzed.json")
             if ap.exists():
                 ad = json.loads(ap.read_text(encoding="utf-8"))
-                analyzed_ctx = (ad.get("transcript") or "")[:5000]
+                _ad_txt = (ad.get("transcript") or "")[:3000]
+                _ad_date = str(ad.get("exported_at") or "")[:10]
+                if _ad_txt:
+                    analyzed_ctx = (
+                        f"(HISTORICAL snapshot of an imported session from {_ad_date or 'an earlier date'}. "
+                        f"It shows how GMM felt THEN — not now. Use it only for background; the RECENT "
+                        f"JOURNALS are the current truth and always override anything here.)\n{_ad_txt}"
+                    )
         except Exception:
             pass
 
@@ -5693,35 +6915,10 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 if t:
                     all_asked_questions.append(t)
 
-        # Build per-category topic fingerprint — named entities + key nouns from
-        # every past question in that category.  This gives the LLM a clear
-        # "these subjects have already been covered" signal per category.
-        _STOP = {
-            'what','when','where','which','have','been','your','with','from','they',
-            'will','more','most','some','make','does','like','just','into','over',
-            'than','them','then','were','also','both','each','such','take','time',
-            'very','think','feel','that','this','these','those','about','around',
-            'during','while','after','before','since','until','through','between',
-            'describe','consider','reflect','explore','discuss','share','tell',
-            'have','been','could','would','should','their','there','here','often',
-            'recent','specific','situation','particular','feelings','thoughts',
-        }
-        def _topics_from(text: str) -> list:
-            named = _re2.findall(r'\b[A-Z][a-zA-Z]{2,}\b', text)          # proper nouns
-            nouns = [w.lower() for w in _re2.findall(r'\b[a-z]{5,}\b', text.lower())
-                     if w.lower() not in _STOP]
-            return list(set(named + nouns[:6]))
-
-        cat_covered: dict = {}   # category → set of covered topic words
-        for s in all_prev:
-            for q in s.get("questions", []):
-                cat = q.get("category", "general")
-                cat_covered.setdefault(cat, set()).update(_topics_from(q.get("text", "")))
-
-        # Format the covered-topics block per category for the LLM
-        cat_covered_block = ""
-        for cat, topics in cat_covered.items():
-            cat_covered_block += f"  {cat}: {', '.join(sorted(topics)[:20])}\n"
+        # (The old per-category "covered topics" fingerprint was removed — after a
+        # few sessions it banned every subject GMM actually struggles with, pushing
+        # questions away from the core problem into random territory. Repetition is
+        # now handled by the near-verbatim dedup further down, not by topic bans.)
 
         # ── Previous session Q&A (training material) ─────────────────────────
         prev_qa_summary = ""
@@ -5730,7 +6927,8 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             for q in s.get("questions", []):
                 ans = next((a for a in s.get("answers", []) if a.get("question_id") == q.get("id")), None)
                 if ans and not ans.get("skipped"):
-                    lines.append(f"  Q [{q.get('category','')}]: {q['text']}\n  A: {ans['text']}")
+                    # cap answers — uncapped ones could crowd the entire prompt out of num_ctx
+                    lines.append(f"  Q [{q.get('category','')}]: {q['text']}\n  A: {ans['text'][:250]}")
                 else:
                     lines.append(f"  Q [{q.get('category','')}]: {q['text']}\n  A: [SKIPPED]")
             prev_qa_summary += f"=== Session {s.get('date')} | mood {s.get('mood_start')}→{s.get('mood_end')} ===\n" + "\n".join(lines) + "\n\n"
@@ -5758,20 +6956,65 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             if d.get("times_skipped", 0) > d.get("times_engaged", 0)
         ]
 
+        # ── CURRENT STATE + LAST-SESSION THREAD ──────────────────────────────
+        # This is what grounds the questions in TODAY's reality: what changed
+        # since the last session, and the thread the last session left open.
+        last_session = completed_prev[-1] if completed_prev else None
+        last_date = (last_session or {}).get("date") or ""
+        last_mood_end = (last_session or {}).get("mood_end")
+
+        since_entries = [e for e in all_entries_sorted if (e.get("date") or "") > last_date] \
+            if last_date else all_entries_sorted[:7]
+        since_entries = since_entries[:10]
+        since_journal_text = "\n".join([
+            f"[{e.get('date')}] Mood:{e.get('mood','?')} | {e.get('title','')} | {(e.get('details','') or '')[:400]}"
+            for e in since_entries
+        ]) or "(no new entries since last session)"
+
+        last_thread_block = ""
+        last_action_step = (last_session or {}).get("action_step") or ""
+        if last_session:
+            _inf = last_session.get("journal_inferences") or {}
+            _qa_lines = []
+            for q in last_session.get("questions", []):
+                ans = next((a for a in last_session.get("answers", [])
+                            if a.get("question_id") == q.get("id")), None)
+                if ans and not ans.get("skipped"):
+                    _qa_lines.append(f"  Q: {q['text']}\n  A: {ans['text'][:300]}")
+            last_thread_block = (
+                f"Last session: {last_date} | mood ended at {last_mood_end}\n"
+                f"Key inference: {_inf.get('key_inference') or '—'}\n"
+                f"Contradictions found: {', '.join(_inf.get('contradictions', [])[:3]) or '—'}\n"
+                f"ACTION STEP GMM COMMITTED TO: {last_action_step or '(none recorded)'}\n"
+                f"Insight given: {(last_session.get('insights') or '')[:500]}\n"
+                f"What GMM answered:\n" + ("\n".join(_qa_lines[:3]) or "  (all skipped)")
+            )
+
         # ── PHASE 1: TUNE ────────────────────────────────────────────────────
         tune_prompt = (
             f"You are Arwanos analyzing GMM's complete journal history ({total_journals} entries) and habits.\n"
-            "Read all data carefully and produce a concise psychological profile.\n\n"
+            "Read all data carefully and produce a concise psychological profile.\n"
+            "core_problem = the SINGLE most pressing issue in GMM's life RIGHT NOW, "
+            "weighted heavily toward the newest entries — one concrete sentence naming "
+            "the actual situation (not an abstract theme).\n"
+            "IMPORTANT — check for resolution first: if the newest entries show that a "
+            "previously central problem has been solved, handled, or gone quiet, put it in "
+            "resolved_or_improving and DO NOT carry it forward as core_problem out of habit. "
+            "The core problem must be alive in the newest entries. When the old one is "
+            "settled, promote whatever is genuinely most pressing now — even if it is new, "
+            "smaller, or a different kind of problem — and list other candidates you see "
+            "forming in emerging_problems.\n\n"
             f"RECENT JOURNALS (last {len(recent_full)}, full detail):\n{recent_journal_text}\n\n"
             f"OLDER JOURNALS ({len(older_entries)} entries, titles only):\n{older_journal_text}\n\n"
             f"COMPLETE HABITS HISTORY:\n{habits_full or 'No habits tracked.'}\n\n"
-            f"PRIOR DEEP ANALYSIS (analyzed.json):\n{analyzed_ctx}\n\n"
+            f"PRIOR DEEP ANALYSIS (older imported session — historical background, weigh lightly):\n{analyzed_ctx or '(none)'}\n\n"
             f"PREVIOUS MONITOR SESSION INSIGHTS:\n{prev_insights_summary or 'No previous sessions.'}\n\n"
             f"PAST JOURNAL CROSS-REFERENCE INFERENCES:\n{prev_inferences_summary or 'None yet.'}\n\n"
             "Output ONLY a JSON object:\n"
-            '{"dominant_themes":["..."],"recurring_patterns":["..."],'
+            '{"core_problem":"...","dominant_themes":["..."],"recurring_patterns":["..."],'
             '"habit_struggles":["..."],"mood_trend":"...",'
-            '"unresolved_tensions":["..."],"unexplored_areas":["..."],"strengths":["..."],"total_journals_read":0}'
+            '"unresolved_tensions":["..."],"unexplored_areas":["..."],"strengths":["..."],'
+            '"resolved_or_improving":["..."],"emerging_problems":["..."],"total_journals_read":0}'
         )
 
         profile = {}
@@ -5807,10 +7050,12 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             return str(v)
 
         for _k in ("dominant_themes", "recurring_patterns", "habit_struggles",
-                   "unresolved_tensions", "unexplored_areas", "strengths"):
+                   "unresolved_tensions", "unexplored_areas", "strengths",
+                   "resolved_or_improving", "emerging_problems"):
             _v = profile.get(_k)
             profile[_k] = [_prof_str(x) for x in _v] if isinstance(_v, list) else ([_prof_str(_v)] if _v else [])
         profile["mood_trend"] = _prof_str(profile.get("mood_trend") or "")
+        profile["core_problem"] = _prof_str(profile.get("core_problem") or "")
 
         # ── PHASE 2: QUESTION GENERATION ─────────────────────────────────────
         psych_search_text = " ".join([
@@ -5828,6 +7073,10 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             f"Mood trend: {profile.get('mood_trend', '')}\n"
             f"Unresolved tensions: {', '.join(profile.get('unresolved_tensions', []))}\n"
             f"UNEXPLORED AREAS (focus here): {', '.join(profile.get('unexplored_areas', []))}\n"
+            f"RESOLVED / IMPROVING (do NOT interrogate as live problems): "
+            f"{', '.join(profile.get('resolved_or_improving', [])) or '—'}\n"
+            f"EMERGING PROBLEMS (fresh material worth probing): "
+            f"{', '.join(profile.get('emerging_problems', [])) or '—'}\n"
             f"Strengths: {', '.join(profile.get('strengths', []))}"
         )
 
@@ -5854,36 +7103,63 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             for cat, angles in cat_angles.items()
         )
 
+        # Which problems the last sessions already centered on — factual list so
+        # the LLM can see repetition and rotate instead of fixating on one issue.
+        recent_cores = [
+            f"  [{s.get('date')}] {(s.get('tuning_profile') or {}).get('core_problem') or '—'}"
+            for s in completed_prev[-2:]
+        ]
+        recent_cores_block = ("Core problem of recent sessions (check for repetition):\n"
+                              + "\n".join(recent_cores) + "\n") if recent_cores else ""
+
         question_prompt = (
             f"You are Arwanos. Session #{session_count + 1} for GMM.\n"
             f"Depth mode: {depth_instruction}\n\n"
-            "━━━ CONSTRAINT: COVERED TOPICS (DO NOT RE-ASK ABOUT THESE) ━━━\n"
-            "The following topics have already been explored in previous sessions.\n"
-            "Your questions MUST NOT touch these subjects. Find entirely new territory.\n"
-            f"{cat_covered_block if cat_covered_block else '  (none yet — first session)'}\n\n"
-            "━━━ CONSTRAINT: FORBIDDEN QUESTIONS (EXACT AND PARAPHRASED) ━━━\n"
-            "Every question below was already asked. You may NOT ask it again in any form.\n"
-            + "\n".join(f"  ✗ {q}" for q in all_asked_questions) + "\n\n"
-            "━━━ PROFILE & UNEXPLORED AREAS (base new questions here) ━━━\n"
+            "━━━ CURRENT STATE — THE ANCHOR. Every question must serve this. ━━━\n"
+            f"Mood right now: {mood_start}/10"
+            + (f" (last session ended at {last_mood_end}/10 on {last_date})" if last_session else " (first session)") + "\n"
+            f"CORE PROBLEM RIGHT NOW: {profile.get('core_problem') or '(not identified — infer from the entries below)'}\n"
+            + recent_cores_block
+            + (f"⚑ PENDING ACTION STEP (one question MUST ask, plainly, whether GMM did this): "
+               f"\"{last_action_step}\"\n" if last_action_step else "")
+            + f"Most-avoided categories so far: {', '.join(avoided) or 'none yet'}\n\n"
+            "JOURNAL ENTRIES SINCE LAST SESSION (newest first — today's raw material):\n"
+            f"{since_journal_text}\n\n"
+            "━━━ LAST SESSION THREAD (exactly ONE question must continue this) ━━━\n"
+            f"{last_thread_block or '(first session — no thread yet; ask a baseline question instead)'}\n\n"
+            "━━━ PROFILE (background context, not the anchor) ━━━\n"
             f"{profile_block}\n\n"
-            "━━━ WHAT GMM SAID IN PAST SESSIONS (build deeper on this) ━━━\n"
+            "━━━ WHAT GMM SAID IN PAST SESSIONS ━━━\n"
             f"{prev_qa_summary or 'No previous sessions yet.'}\n"
-            "━━━ PAST AI INSIGHTS ━━━\n"
-            f"{prev_insights_summary or 'None yet.'}\n\n"
             "━━━ CROSS-REFERENCE INFERENCES (what answers revealed vs journals) ━━━\n"
             f"{prev_inferences_summary or 'None yet.'}\n\n"
             "━━━ PROFESSIONAL PSYCHOLOGY EXAMPLES ━━━\n"
             f"{psych_examples or 'None.'}\n\n"
+            "━━━ ALREADY-ASKED QUESTIONS (do not repeat VERBATIM or trivially rephrased) ━━━\n"
+            "Asking about the SAME topic again is ENCOURAGED when the question goes deeper\n"
+            "or uses new journal evidence — what is forbidden is re-asking the same question.\n"
+            + "\n".join(f"  ✗ {q}" for q in all_asked_questions[-40:]) + "\n\n"
             "━━━ ANGLE ROTATION (which dimension to explore per category THIS session) ━━━\n"
             f"{cat_angle_block}\n\n"
             "RULES — follow strictly:\n"
-            "1. DO NOT ask about any topic in the COVERED TOPICS list — that ground is exhausted\n"
-            "2. DO NOT ask any question from the FORBIDDEN list, even rephrased or reworded\n"
-            "3. For each category, explore the ANGLE ROTATION dimension — not what was asked before\n"
-            "4. Build on what GMM actually said in past sessions — go one layer deeper, follow the thread\n"
-            "5. Focus on UNEXPLORED AREAS from the profile — these are the untouched dimensions\n"
-            "6. Model phrasing on professional psychology examples — warm, specific, direct\n"
-            "7. Output ONLY the JSON array — no prose, no markdown, no explanation\n\n"
+            "1. ANCHOR: every question must connect to the CURRENT STATE block or the LAST SESSION THREAD.\n"
+            "   If a question could have been generated without reading them, it is wrong.\n"
+            "2. ONE or TWO questions target the CORE PROBLEM through their categories' lenses —\n"
+            "   never build the whole session around a single problem. If the recent-sessions\n"
+            "   list shows the SAME core problem two sessions running, ONE question on it is\n"
+            "   enough; give the freed slots to EMERGING PROBLEMS or UNEXPLORED AREAS from the\n"
+            "   profile. If something is listed as RESOLVED/IMPROVING, do not interrogate it as\n"
+            "   a live problem — at most ONE question may acknowledge the win and ask what made\n"
+            "   it work, so the progress is recognized rather than re-diagnosed.\n"
+            "3. Exactly ONE question must follow up on the LAST SESSION THREAD. If an\n"
+            "   ACTION STEP was recorded, that follow-up MUST ask whether GMM actually did it\n"
+            "   ('Last session you planned to … did that happen? what got in the way?').\n"
+            "   Otherwise reference what GMM actually said or was told.\n"
+            "4. Reference concrete events, names, and dates from the entries — no abstract questions.\n"
+            "5. Do not repeat an already-asked question verbatim or in trivial paraphrase;\n"
+            "   same topic + deeper angle (see ANGLE ROTATION) is the goal.\n"
+            "6. Model phrasing on professional psychology examples — warm, specific, direct.\n"
+            "7. Output ONLY the JSON array — no prose, no markdown, no explanation.\n\n"
             'OUTPUT FORMAT:\n[{"id":"q1","text":"...","category":"emotional_awareness"},{"id":"q2","text":"...","category":"behavior_patterns"},{"id":"q3","text":"...","category":"habit_accountability"},{"id":"q4","text":"...","category":"avoidance_detection"},{"id":"q5","text":"...","category":"forward_planning"}]'
         )
 
@@ -5954,25 +7230,37 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             return {w.lower() for w in _re2.findall(r'\b[a-zA-Z]{6,}\b', text)
                     if w.lower() not in _DUP_STOP}
 
+        # Question-starters and aux verbs are capitalized in every question —
+        # without this filter every pair of questions "shared 2 entities"
+        # (What + How) and got falsely flagged as duplicates.
+        _ENT_STOP = {
+            'What', 'How', 'When', 'Where', 'Which', 'Who', 'Why', 'Whose',
+            'Do', 'Does', 'Did', 'Is', 'Are', 'Was', 'Were', 'Can', 'Could',
+            'Would', 'Should', 'Have', 'Has', 'Had', 'If', 'In', 'On', 'At',
+            'The', 'And', 'Or', 'But', 'Your', 'You', 'Last', 'This', 'That',
+            'Think', 'Describe', 'Consider', 'Reflect', 'Given', 'Looking',
+        }
+
         def _entities(text: str) -> set:
             # Named entities: capitalized words, hyphenated codes (Sc-900), short caps (New York)
             caps   = set(_re2.findall(r'\b[A-Z][a-zA-Z]{1,}\b', text))
             codes  = set(_re2.findall(r'\b[A-Z][a-zA-Z0-9]*[-][a-zA-Z0-9]+\b', text))
             abbrvs = set(_re2.findall(r'\b[A-Z]{2,}\b', text))
-            return caps | codes | abbrvs
+            return (caps | codes | abbrvs) - _ENT_STOP
 
         def _is_dup(new_q: str, past_qs: list) -> bool:
+            # Near-verbatim only. The old thresholds (ngram 0.22 / 3 shared nouns)
+            # flagged every follow-up on a recurring struggle as a duplicate and
+            # regenerated it into unrelated territory — the exact opposite of a
+            # check-in. Same topic is now allowed; same QUESTION is not.
             n_nouns    = _key_nouns(new_q)
             n_entities = _entities(new_q)
             for pq in past_qs:
-                # 1. Character n-gram similarity (lowered to 0.22)
-                if _ngram_sim(new_q, pq) >= 0.22:
+                # 1. Character n-gram similarity — trivial rephrasing of the same question
+                if _ngram_sim(new_q, pq) >= 0.45:
                     return True
-                # 2. Named entity overlap — same real-world subject (e.g. "Sc-900", "Madrid")
-                if len(n_entities & _entities(pq)) >= 2:
-                    return True
-                # 3. Key noun overlap — same topic domain (e.g. strategies + streak + success)
-                if len(n_nouns & _key_nouns(pq)) >= 3:
+                # 2. Heavy noun AND entity overlap — same question wearing new words
+                if len(n_nouns & _key_nouns(pq)) >= 5 and len(n_entities & _entities(pq)) >= 2:
                     return True
             return False
 
@@ -5981,12 +7269,13 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             if _is_dup(q.get("text", ""), all_asked_questions):
                 duplicates_idx.append(i)
 
-        # Also catch duplicates within this batch
+        # Also catch duplicates within this batch — 0.45 because all five
+        # questions now deliberately orbit the same core problem
         for i in range(len(questions)):
             for j in range(i + 1, len(questions)):
                 if j not in duplicates_idx and _ngram_sim(
                     questions[i].get("text", ""), questions[j].get("text", "")
-                ) >= 0.28:
+                ) >= 0.45:
                     duplicates_idx.append(j)
 
         duplicates_idx = list(set(duplicates_idx))
@@ -5994,17 +7283,18 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
         if duplicates_idx:
             cats_needed = [questions[i].get("category", "general") for i in duplicates_idx]
             kept_texts  = [q.get("text", "") for k, q in enumerate(questions) if k not in duplicates_idx]
-            forbidden   = "\n".join(f"  ✗ {t}" for t in all_asked_questions + kept_texts)
-            covered_str = cat_covered_block
+            forbidden   = "\n".join(f"  ✗ {t}" for t in all_asked_questions[-40:] + kept_texts)
 
             regen_prompt = (
                 f"Generate exactly {len(duplicates_idx)} NEW questions, one per category: {', '.join(cats_needed)}\n"
-                f"They must NOT touch any covered topic and must NOT resemble any forbidden question.\n\n"
-                f"COVERED TOPICS (avoid entirely):\n{covered_str}\n\n"
-                f"FORBIDDEN QUESTIONS:\n{forbidden}\n\n"
+                "Each replacement must STAY on GMM's current core problem and recent journal\n"
+                "entries — same topics are fine — but must not repeat any question below.\n\n"
+                f"CORE PROBLEM RIGHT NOW: {profile.get('core_problem') or '(see entries)'}\n\n"
+                f"JOURNAL ENTRIES SINCE LAST SESSION:\n{since_journal_text}\n\n"
+                f"ALREADY-ASKED QUESTIONS (do not repeat verbatim or trivially rephrased):\n{forbidden}\n\n"
                 f"PROFILE:\n{profile_block}\n\n"
-                f"UNEXPLORED AREAS (focus here):\n{', '.join(profile.get('unexplored_areas', []))}\n\n"
-                "Be warm, specific, and explore genuinely new ground.\n"
+                "Ask a deeper or updated version grounded in the newest entries.\n"
+                "Be warm, specific, and concrete — reference actual events.\n"
                 f'Output ONLY: [{{"id":"rX","text":"...","category":"..."}}]'
             )
             try:
@@ -6027,7 +7317,10 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                         if not (isinstance(rep, dict) and isinstance(rep.get("text"), str) and rep["text"].strip()):
                             continue  # keep the original question rather than a malformed replacement
                         rep["id"] = questions[idx].get("id", f"q{idx+1}")
-                        rep["category"] = _prof_str(rep.get("category") or questions[idx].get("category") or "general")
+                        # ALWAYS keep the original slot's category — letting the LLM
+                        # pick produced two questions in one category and none in
+                        # another, which corrupts the Topic Progress tracking.
+                        rep["category"] = _prof_str(questions[idx].get("category") or "general")
                         questions[idx] = rep
             except Exception:
                 pass
@@ -6071,6 +7364,7 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
         question_id = data.get("question_id")
         answer_text = (data.get("text") or "").strip()
         skipped = bool(data.get("skipped", False))
+        skip_reason = (data.get("skip_reason") or "").strip()[:120]
 
         if not session_id or not question_id:
             return jsonify({"ok": False, "error": "missing session_id or question_id"}), 400
@@ -6086,6 +7380,7 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             "text": answer_text,
             "answered_at": _dt.datetime.now().isoformat(),
             "skipped": skipped,
+            "skip_reason": skip_reason if skipped else "",
         })
 
         q = next((q for q in session.get("questions", []) if q.get("id") == question_id), None)
@@ -6134,8 +7429,13 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             if ans and not ans.get("skipped"):
                 qa_text += f"Q [{q.get('category','')}]: {q['text']}\nA: {ans['text']}\n\n"
                 answers_text_only.append(ans["text"])
+            elif ans:
+                _r = (ans.get("skip_reason") or "").strip()
+                _lbl = f"[SKIPPED — GMM's stated reason: {_r}]" if _r else "[SKIPPED — no reason given]"
+                qa_text += f"Q [{q.get('category','')}]: {q['text']}\n{_lbl}\n\n"
             else:
-                qa_text += f"Q [{q.get('category','')}]: {q['text']}\n[SKIPPED]\n\n"
+                # Never reached (session ended early) — not a choice, not avoidance.
+                qa_text += f"Q [{q.get('category','')}]: {q['text']}\n[NOT REACHED — session ended before this question]\n\n"
 
         mood_delta = mood_end - session.get("mood_start", 5.0)
         tuning_profile = session.get("tuning_profile") or {}
@@ -6162,11 +7462,18 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             f"TODAY'S SESSION ANSWERS:\n{qa_text}\n"
             f"RECENT JOURNALS (full detail, newest first):\n{journal_timeline}\n\n"
             f"OLDER JOURNALS (titles only):\n{older_titles or '(none)'}\n\n"
+            "RULES:\n"
+            "- A pattern counts as CONFIRMED only if you cite at least 2 short journal quotes "
+            "from DIFFERENT dates as evidence. If you cannot cite 2, it is not confirmed — "
+            "put it in new_revelations or leave it out entirely. Never guess.\n"
+            "- resolved_signals = problems that older journals or sessions treated as central "
+            "but the newest material shows are solved, handled, or gone quiet.\n"
             "Output ONLY a JSON object with these exact keys:\n"
-            '{"confirmed_patterns":["..."],'
+            '{"confirmed_patterns":[{"pattern":"...","evidence":["YYYY-MM-DD: short quote","YYYY-MM-DD: short quote"]}],'
             '"contradictions":["..."],'
             '"new_revelations":["..."],'
             '"progression":["..."],'
+            '"resolved_signals":["..."],'
             '"key_inference":"one sentence that captures the most important finding"}'
         )
 
@@ -6202,7 +7509,28 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 return "; ".join(_inf_str(x) for x in v)
             return str(v)
 
-        for _k in ("confirmed_patterns", "contradictions", "new_revelations", "progression"):
+        # "Confirmed" must be earned: keep the label only for patterns carrying
+        # >=2 dated citations; everything else is demoted to an explicit
+        # hypothesis tag the insight prompt is told to phrase as a guess.
+        _cp_raw = journal_inferences.get("confirmed_patterns")
+        if not isinstance(_cp_raw, list):
+            _cp_raw = [_cp_raw] if _cp_raw else []
+        _cp_clean = []
+        for it in _cp_raw:
+            if isinstance(it, dict):
+                pat = _inf_str(it.get("pattern") or "")
+                ev = it.get("evidence")
+                ev = [_inf_str(x) for x in ev] if isinstance(ev, list) else ([_inf_str(ev)] if ev else [])
+                ev = [x for x in ev if x.strip()]
+                if pat and len(ev) >= 2:
+                    _cp_clean.append(f"{pat} [evidence: {ev[0]} | {ev[1]}]")
+                elif pat:
+                    _cp_clean.append(f"{pat} [uncited — hypothesis only]")
+            elif isinstance(it, str) and it.strip():
+                _cp_clean.append(f"{it.strip()} [uncited — hypothesis only]")
+        journal_inferences["confirmed_patterns"] = _cp_clean
+
+        for _k in ("contradictions", "new_revelations", "progression", "resolved_signals"):
             _v = journal_inferences.get(_k)
             journal_inferences[_k] = [_inf_str(x) for x in _v] if isinstance(_v, list) else ([_inf_str(_v)] if _v else [])
         journal_inferences["key_inference"] = _inf_str(journal_inferences.get("key_inference") or "")
@@ -6225,6 +7553,9 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
                 f"TUNING PROFILE (from session start — all journals):\n"
                 f"  Dominant themes: {', '.join(tuning_profile.get('dominant_themes', []))}\n"
                 f"  Unresolved tensions: {', '.join(tuning_profile.get('unresolved_tensions', []))}\n"
+                f"  Resolved / improving (do NOT treat as live problems): "
+                f"{', '.join(tuning_profile.get('resolved_or_improving') or []) or '—'}\n"
+                f"  Emerging problems: {', '.join(tuning_profile.get('emerging_problems') or []) or '—'}\n"
                 f"  Mood trend: {tuning_profile.get('mood_trend', '')}\n\n"
             )
 
@@ -6234,8 +7565,41 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             f"  Contradictions: {', '.join(journal_inferences.get('contradictions', []))}\n"
             f"  New revelations: {', '.join(journal_inferences.get('new_revelations', []))}\n"
             f"  Progression: {', '.join(journal_inferences.get('progression', []))}\n"
+            f"  Resolved signals (handled or gone quiet): {', '.join(journal_inferences.get('resolved_signals', []))}\n"
             f"  Key inference: {journal_inferences.get('key_inference', '')}\n\n"
         )
+
+        # ── Trajectory across sessions — so the insight tracks movement, not
+        # a snapshot. Last 3 completed sessions before this one.
+        prev_completed = [s for s in sessions
+                          if s.get("status") == "completed"
+                          and s.get("session_id") != session_id]
+        trajectory_block = ""
+        for ps in prev_completed[-3:]:
+            _pinf = (ps.get("journal_inferences") or {}).get("key_inference") or "—"
+            trajectory_block += (
+                f"  [{ps.get('date')}] mood {ps.get('mood_start')}→{ps.get('mood_end')} | {_pinf[:200]}\n"
+            )
+        if trajectory_block:
+            trajectory_block = f"PREVIOUS SESSIONS TRAJECTORY (oldest → newest):\n{trajectory_block}\n"
+
+        # ── Skip evidence — the actual skipped questions plus each topic's
+        # historical skip/engage counts (progress file is updated AFTER this
+        # point, so counts here are pure pre-today history). This grounds the
+        # skip paragraph in facts instead of letting the LLM invent motives.
+        _hist_topics = _read_monitor_progress().get("topics", {})
+        skip_evidence = ""
+        for q in session.get("questions", []):
+            ans = next((a for a in session.get("answers", []) if a.get("question_id") == q.get("id")), None)
+            if ans and ans.get("skipped"):
+                cat = q.get("category", "general")
+                h = _hist_topics.get(cat, {})
+                eng, skp = h.get("times_engaged", 0), h.get("times_skipped", 0)
+                hist = (f"before today this topic was engaged {eng}x, skipped {skp}x"
+                        if (eng + skp) else "first time this topic appeared")
+                _sr = (ans.get("skip_reason") or "").strip()
+                _sr_note = f"; GMM's stated reason: \"{_sr}\"" if _sr else "; no reason given"
+                skip_evidence += f"  - [{cat}] \"{q['text']}\" ({hist}{_sr_note})\n"
 
         insight_prompt = (
             f"Write the final psychoanalytical insight for GMM's session today.\n\n"
@@ -6243,17 +7607,36 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
             f"Mood: {session.get('mood_start')} → {mood_end} "
             f"({'↑' if mood_delta > 0 else '↓' if mood_delta < 0 else '='}{abs(mood_delta):.1f})\n"
             f"Topics engaged: {', '.join(session.get('topics_engaged', []))}\n"
-            f"Topics avoided: {', '.join(session.get('topics_skipped', []))}\n\n"
+            f"Questions skipped today, with per-topic history:\n"
+            f"{skip_evidence or '  (none — GMM answered every question)'}\n"
+            f"{trajectory_block}"
             f"{profile_block}"
             f"{inference_block}"
             f"TODAY'S Q&A:\n{qa_text}\n"
             f"PROFESSIONAL REFERENCE (matched to inferences):\n{psych_examples or 'N/A'}\n\n"
             "Write 4 short paragraphs:\n"
-            "(1) What today's answers confirm or contradict in the journal history — use the cross-reference findings\n"
+            "(1) MOVEMENT since the last session — compare today against the trajectory above:\n"
+            "    what improved, what regressed, whether the last key inference still holds.\n"
+            "    If a problem that used to be central now shows resolved signals, SAY SO plainly\n"
+            "    and give GMM credit for it — then name what is emerging next instead. Never\n"
+            "    keep resurrecting a problem the evidence says is handled\n"
             "(2) The most significant new revelation from comparing answers to journals\n"
-            "(3) What the skipped questions signal and how they connect to the confirmed patterns\n"
+            "(3) The skipped questions — evidence only. Quote the actual skipped question(s). "
+            "If GMM gave a stated reason for a skip, that reason IS the explanation: report it "
+            "as fact and do not reinterpret it or search for a hidden motive behind it. "
+            "Call a skip meaningful ONLY if its per-topic history shows repeated skipping "
+            "(skipped more than engaged); then say exactly which topic and cite the counts. "
+            "A first-time or rare skip is a one-off: name the mundane possibilities (question "
+            "felt repetitive or unclear, topic not relevant today, low energy) and pose it as "
+            "an open question for GMM to confirm — never diagnose. Never infer a hidden motive, "
+            "and never connect a skip to a person or topic that does not appear in the skipped "
+            "question's own text. If nothing was skipped, say so in one line and use this "
+            "paragraph for the strongest confirmed pattern from today's actual answers instead\n"
             "(4) One specific, actionable step for tomorrow grounded in the key inference\n"
-            "Be precise, warm, and direct. Reference specific things GMM said. No generic advice."
+            "Be precise, warm, and direct. Reference specific things GMM said. No generic advice. "
+            "State facts as facts and guesses as guesses — never present speculation as a "
+            "confirmed pattern. Anything tagged [uncited — hypothesis only] must be phrased "
+            "as an open hypothesis, never as an established fact about GMM."
         )
 
         try:
@@ -6274,6 +7657,34 @@ def _create_flask_app(app_ctx: "ArwanosApp") -> Flask:
 
         session["insights"] = insights
         session["journal_inferences"] = journal_inferences
+
+        # ── ACCOUNTABILITY: pull the single action step out of the insight so
+        # the NEXT session can ask whether it actually happened. This closes the
+        # loop the Monitor always opened but never followed up on.
+        action_step = ""
+        try:
+            _as_prompt = (
+                "From the reflection below, extract ONLY the single concrete next "
+                "action the person committed to — as one short imperative sentence "
+                "(max 15 words). No preamble, no quotes.\n\n"
+                f"{(insights or '')[:1600]}\n\nAction:"
+            )
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+            action_step = _loop.run_until_complete(
+                app_ctx._call_llm_with_context(
+                    query=_as_prompt, conversation_history=[], context=[],
+                    intrinsic_only=True,
+                    system_override="Output only the one action sentence. No preamble.",
+                )
+            )
+            _loop.close()
+            action_step = (action_step or "").strip().strip('"').splitlines()[0][:160]
+        except Exception:
+            action_step = ""
+        session["action_step"] = action_step
+        session["action_step_status"] = "pending" if action_step else "none"
+
         _write_monitor_sessions(sessions)
 
         # Update cumulative progress
@@ -6401,7 +7812,21 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         self._init_commands()
         self._ensure_runtime_dirs()
         try:
-            self.title("Welcome Sir")
+            self.title("Arwanos — Welcome Sir")
+            self.geometry("1180x820")
+            self.minsize(880, 640)
+            self.configure(fg_color=V10["bg_base"])
+        except Exception:
+            pass
+        # window icon — taskbar/dock identity
+        try:
+            if _PIL_AVAILABLE:
+                _icon_p = Path(__file__).resolve().parent / "Arwanos_icon.png"
+                if _icon_p.exists():
+                    _img = Image.open(_icon_p)
+                    _img.thumbnail((256, 256))
+                    self._app_icon = ImageTk.PhotoImage(_img)
+                    self.iconphoto(True, self._app_icon)
         except Exception:
             pass
 
@@ -6427,8 +7852,35 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             "i dont like banana",
             "i don't like banana",
         ]
+        # --- streaming state ---
+        self._streaming_enabled = True   # live token-by-token rendering for plain chat
+        self._active_stream_cb  = None   # per-answer token sink, consumed once
+        self._stream_start_idx  = None
+
+        # --- model switcher state ---
+        self._model_menu   = None
+        self._model_dot    = None
+        self._switching_model = False
+
+        # --- theme state ---
+        self._active_theme    = "Midnight"
+        self._theme_picker_win = None
+        self._theme_swatches  = None
+
+        # --- voice input state (VAD turn-taking, gm-agent style) ---
+        self._whisper_model  = None      # loaded faster-whisper model (None until loaded)
+        self._whisper_unavailable = False  # True only if the package is genuinely missing
+        self._whisper_error  = None      # last human-readable load error
+        self._voice_listening = False    # a VAD listen-turn is capturing right now
+        self._voice_proc     = None      # the arecord capture process
+        self._voice_call_mode = False    # hands-free conversation loop active
+        self._voice_empty_streak = 0     # consecutive turns with no speech → auto-hang-up
+        self._mic_btn        = None
+        self._call_btn       = None
+
         # --- styling defaults ---
-        self._assistant_default_color = "#1384ad"   # teal-blue (default)
+        # brighter sky tone — the old #1384ad sat too dark on the v10 canvas
+        self._assistant_default_color = V10["assistant"]
         self._assistant_accent_color  = "#e04cc3"   # pink (toggled)
         self._theme_is_red = False                  # tracks current toggle state
         # --- loading animation state ---
@@ -6456,12 +7908,63 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         self._bg_loop: asyncio.AbstractEventLoop | None = None
         self._bg_thread: threading.Thread | None = None
         self._start_background_loop()
+
+        # ── v10 header bar — brand identity + live model chip ──────────────
+        try:
+            self.header_bar = ctk.CTkFrame(
+                self, fg_color=V10["bg_surface"], corner_radius=0, height=46
+            )
+            self.header_bar.pack(side="top", fill="x")
+            self.header_bar.pack_propagate(False)
+
+            ctk.CTkLabel(
+                self.header_bar, text="⟁  A R W A N O S",
+                text_color=V10["accent2"],
+                font=("DejaVu Sans", 16, "bold"),
+            ).pack(side="left", padx=(16, 8))
+            ctk.CTkLabel(
+                self.header_bar, text="v10",
+                text_color=V10["text_faint"],
+                font=("DejaVu Sans", 11),
+            ).pack(side="left")
+
+            # ● status dot — color set by _ensure_llm (green ready / red offline)
+            self._model_dot = ctk.CTkLabel(
+                self.header_bar, text="●", text_color=V10["text_muted"],
+                font=("DejaVu Sans", 13),
+            )
+            self._model_dot.pack(side="right", padx=(0, 6))
+            self._model_chip = self._model_dot   # alias: existing status-color code still works
+
+            # 1-click model switcher — lists local Ollama models, swaps live
+            self._model_menu = ctk.CTkOptionMenu(
+                self.header_bar, values=["loading…"],
+                command=self._on_model_menu_change,
+                width=210, height=28,
+                fg_color=V10["bg_elevated"], button_color=V10["bg_elevated"],
+                button_hover_color=V10["accent"], text_color=V10["text"],
+                dropdown_fg_color=V10["bg_surface"],
+                dropdown_hover_color=V10["bg_elevated"],
+                dropdown_text_color=V10["text"],
+                font=("DejaVu Sans Mono", 11), dropdown_font=("DejaVu Sans Mono", 11),
+                corner_radius=8,
+            )
+            self._model_menu.pack(side="right", padx=(0, 12))
+
+            # hairline divider under the header
+            ctk.CTkFrame(
+                self, fg_color=V10["border_subtle"], corner_radius=0, height=1
+            ).pack(side="top", fill="x")
+        except Exception:
+            self._model_chip = None
+            self._model_menu = None
+
         # --- simple chat area, so you can SEE messages ---
         try:
             self.chat_frame = ctk.CTkFrame(
                 self,
-                fg_color="#09090f",
-                border_color="#2d2d4a",
+                fg_color=V10["bg_chat"],
+                border_color=V10["border_subtle"],
                 border_width=1,
                 corner_radius=12,
             )
@@ -6478,11 +7981,11 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             apply_chat_styling(self, zoom_delta=self._current_zoom_delta)
             # Optional tags (light styling)
             try:
-                self.chat_history.tag_config("user", foreground="#FFFFFF")
+                self.chat_history.tag_config("user", foreground=V10["text"])
                 self.chat_history.tag_config(
                     "assistant", foreground=self._assistant_default_color
                 )
-                self.chat_history.tag_config("system", foreground="#FFCC66")
+                self.chat_history.tag_config("system", foreground=V10["warn"])
                 self.chat_history.tag_config("terminal", foreground="#F3F99D")
                 self.chat_history.tag_config("comment", foreground="#FFFF00")
                 # note tag — foreground set separately so a font/margin failure
@@ -6581,14 +8084,15 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
             # Simple status "bar"
             self.status_bar = ctk.CTkLabel(
-                self, text="● Ready",
-                fg_color="#0d0d18",
-                text_color="#64748b",
+                self, text="  ● Ready",
+                fg_color=V10["bg_surface"],
+                text_color=V10["text_faint"],
                 corner_radius=6,
+                height=28,
                 font=("DejaVu Sans", 12),
                 anchor="w",
             )
-            self.status_bar.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
+            self.status_bar.pack(side="bottom", fill="x", padx=10, pady=(0, 8))
         except Exception:
             # If UI fails for any reason, fall back to None (no crash)
             self.chat_history = None
@@ -6611,17 +8115,25 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         self.user_input = ctk.CTkEntry(
             self.input_frame,
-            placeholder_text="Type your message…",
-            height=44,
-            fg_color="#0d0d18",
-            border_color="#2d2d4a",
+            placeholder_text="Message Arwanos…   ( /help for commands )",
+            height=46,
+            fg_color=V10["bg_surface"],
+            border_color=V10["border"],
             border_width=1,
-            text_color="#e2e8f0",
+            text_color=V10["text"],
             placeholder_text_color="#475569",
-            corner_radius=10,
+            corner_radius=12,
             font=("DejaVu Sans", 16),
         )
         self.user_input.pack(side="left", padx=10, pady=5, fill="x", expand=True)
+        # focus ring — accent border while typing, resting border otherwise
+        try:
+            self.user_input.bind(
+                "<FocusIn>",  lambda e: self.user_input.configure(border_color=V10["accent"]))
+            self.user_input.bind(
+                "<FocusOut>", lambda e: self.user_input.configure(border_color=V10["border"]))
+        except Exception:
+            pass
         self._setup_input_context_menu()
         # alias so any code/self-test looking for input_box can find it
         self.input_box = self.user_input
@@ -6632,6 +8144,10 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         # Colorful hardware config card in the Tk chat
         self.after(200, self._show_hw_config_colorful)
+        # Fill the header model switcher with the locally available Ollama models
+        self.after(500, self._populate_model_menu)
+        # Restore the last-used theme (after all widgets exist so retint can reach them)
+        self.after(600, self._load_saved_theme)
 
 
         # plug the search engine
@@ -6646,14 +8162,14 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         self.send_button = ctk.CTkButton(
             self.input_frame,
-            text="Send ➤",
+            text="Send  ➤",
             command=self.send_message,
-            width=100,
-            height=44,
-            fg_color="#7c3aed",
-            hover_color="#6d28d9",
+            width=110,
+            height=46,
+            fg_color=V10["accent"],
+            hover_color=V10["accent_hover"],
             text_color="#ffffff",
-            corner_radius=10,
+            corner_radius=12,
             font=("DejaVu Sans", 14, "bold"),
         )
         # /vo speaking indicator — floats in the bottom-centre, hidden until TTS starts
@@ -6680,11 +8196,11 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         self.web_controls = ctk.CTkFrame(self, fg_color="transparent")
         self.web_controls.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
         try:
-            self.chat_history.tag_config("user", foreground="#FFFFFF")
+            self.chat_history.tag_config("user", foreground=V10["text"])
             self.chat_history.tag_config(
                 "assistant", foreground=self._assistant_default_color
             )
-            self.chat_history.tag_config("system", foreground="#FFCC66")
+            self.chat_history.tag_config("system", foreground=V10["warn"])
             self.chat_history.tag_config("terminal", foreground="#F3F99D")
             self.chat_history.tag_config(
                 "separator",
@@ -6698,13 +8214,14 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
 
-        # ── Main action row ───────────────────────────────────────────────
+        # ── Main action row — quiet secondary buttons; Send stays the only
+        # accent-filled control so the eye lands on one primary action ──────
         _MB = {
             "height": 36,
-            "fg_color": "#1a0a3c",
-            "hover_color": "#2d1069",
+            "fg_color": V10["bg_surface"],
+            "hover_color": V10["bg_elevated"],
             "text_color": "#c4b5fd",
-            "border_color": "#4c1d95",
+            "border_color": V10["border"],
             "border_width": 1,
             "corner_radius": 8,
             "font": ("DejaVu Sans", 13),
@@ -6732,20 +8249,41 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             width=160, **_MB,
         ).pack(side="left", padx=6)
 
-        # 🐉 Dragon button
-        ctk.CTkButton(
-            self.web_controls,
-            text="🐉",
-            command=self._on_dragon_btn_click,
-            width=44, height=36,
-            fg_color="#1a0808",
-            hover_color="#5a1a1a",
-            border_color="#7f1d1d",
-            border_width=1,
-            corner_radius=8,
-        ).pack(side="left", padx=4)
+        # ── Icon group: dragon · mic · call · theme · symbols ──────────────
+        # One shared style so they read as a tidy, evenly-spaced set and all
+        # retint together with the active theme (no more hardcoded red/blue).
+        _ICON = {
+            "height": 36,
+            "fg_color": "transparent",
+            "hover_color": V10["bg_elevated"],
+            "text_color": V10["text_muted"],
+            "border_color": V10["border_subtle"],
+            "border_width": 1,
+            "corner_radius": 8,
+            "font": ("DejaVu Sans", 15),
+        }
+        # a hair of breathing room so the icon group sits apart from the text buttons
+        ctk.CTkFrame(self.web_controls, fg_color="transparent", width=8).pack(side="left")
 
-        # ── Proposition popup button (🔣) — click to open logic symbol picker ──
+        ctk.CTkButton(self.web_controls, text="🐉", command=self._on_dragon_btn_click,
+                      width=42, **_ICON).pack(side="left", padx=3)
+
+        # Monochrome glyphs (● record, ☎ phone) instead of colour emoji — these
+        # live in DejaVu Sans, so they take text_color and retint with the theme.
+        # Colour emoji (🎤/📞/🎨) ignore text_color and always looked off-theme.
+        self._mic_btn = ctk.CTkButton(
+            self.web_controls, text="●", command=self._toggle_voice_record,
+            width=42, **_ICON)
+        self._mic_btn.pack(side="left", padx=3)
+
+        self._call_btn = ctk.CTkButton(
+            self.web_controls, text="☎ Call", command=self._toggle_call_mode,
+            width=84, **{**_ICON, "font": ("DejaVu Sans", 13)})
+        self._call_btn.pack(side="left", padx=3)
+
+        # Theme lives in Settings ▸ Theme ▸ Change theme… — no header button needed.
+
+        # ── Proposition popup button (∑) — click to open logic symbol picker ──
         self._build_proposition_popup(self.web_controls)
 
         self.send_button.pack(side="right", padx=10, pady=5)
@@ -7275,7 +8813,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             return
         import subprocess, shlex
         # Pass text directly as $1 — avoids Tk vs Wayland clipboard mismatch
-        subprocess.Popen(["bash", "/home/gmm/translate.sh", text])
+        subprocess.Popen(["bash", "/home/gmm/Tools/translate.sh", text])
 
     def _show_search_nav_box(self, total_count: int):
         # Create frame if missing
@@ -7683,10 +9221,12 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             "Give a clear, complete explanation. Be direct. No disclaimers."
         )
         prompt = f"{system}\n\nExcerpt:\n{sel}\n\nQuestion: {q}\n\nArwanos:"
-        # num_ctx:1024 → smaller prefill = faster when Ollama becomes available
+        # No num_ctx override here — the 1024 that used to live in this call
+        # forced a full Ollama runner rebuild on every selection reply, which
+        # cost far more than the smaller prefill ever saved.
         import logging as _log
         try:
-            kwargs = {"options": {"num_ctx": 1024, "num_predict": 700, "temperature": 0.2}}
+            kwargs = {"options": {"num_predict": 700, "temperature": 0.2}}
             if hasattr(llm, "ainvoke"):
                 r = await llm.ainvoke(prompt, **kwargs)
                 text = (getattr(r, "content", None) or str(r or "")).strip()
@@ -7987,10 +9527,10 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 text="Clear Highlight",
                 width=120,
                 height=30,
-                fg_color="#0d0d18",
-                hover_color="#1a1a28",
-                text_color="#94a3b8",
-                border_color="#2d2d4a",
+                fg_color="transparent",
+                hover_color=V10["bg_elevated"],
+                text_color=V10["text_muted"],
+                border_color=V10["border_subtle"],
                 border_width=1,
                 corner_radius=7,
                 font=("DejaVu Sans", 12),
@@ -8013,10 +9553,10 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 text=btn_text,
                 width=110,
                 height=30,
-                fg_color="#0d0d18",
-                hover_color="#1a1a28",
-                text_color="#94a3b8",
-                border_color="#2d2d4a",
+                fg_color="transparent",
+                hover_color=V10["bg_elevated"],
+                text_color=V10["text_muted"],
+                border_color=V10["border_subtle"],
                 border_width=1,
                 corner_radius=7,
                 font=("DejaVu Sans", 12),
@@ -8109,12 +9649,13 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         if not getattr(self, "_util_frame", None):
             return
         try:
+            # ghost style — utility actions stay visually behind the action row
             _BTN = {
                 "height": 30,
-                "fg_color": "#0d0d18",
-                "hover_color": "#1a1a28",
-                "text_color": "#94a3b8",
-                "border_color": "#2d2d4a",
+                "fg_color": "transparent",
+                "hover_color": V10["bg_elevated"],
+                "text_color": V10["text_muted"],
+                "border_color": V10["border_subtle"],
                 "border_width": 1,
                 "corner_radius": 7,
                 "font": ("DejaVu Sans", 12),
@@ -8820,11 +10361,14 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             trigger_btn = ctk.CTkButton(
                 parent,
                 text="∑",          # Σ as a hint for "logic/math symbols"
-                width=38,
-                height=28,
-                fg_color="#0b3770",
-                hover_color="#0f4a9e",
-                text_color="#C6DBFF",
+                width=42,
+                height=36,
+                fg_color="transparent",
+                hover_color=V10["bg_elevated"],
+                text_color=V10["text_muted"],
+                border_color=V10["border_subtle"],
+                border_width=1,
+                corner_radius=8,
                 font=("DejaVu Sans", 15),
                 command=_toggle_popup,
             )
@@ -9268,6 +10812,117 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         self._add_toolbar_buttons()
 
     # --- Settings functionality ---
+    def _show_voice_mode_picker(self, then=None, first_run: bool = False):
+        """Ask which pipeline voice input should go to.
+
+        Shown once on first voice use and then never again — the choice lives in
+        config.json and is editable from Settings. Being asked before every
+        sentence would make voice slower than typing, which defeats the point.
+        """
+        win = ctk.CTkToplevel(self)
+        try:
+            win.title("Voice mode")
+            win.geometry("420x430")
+            win.transient(self)
+        except Exception:
+            pass
+
+        # CTkToplevel often maps behind its parent, and grab_set() on a window that
+        # is not yet viewable raises — leaving an invisible modal holding the input
+        # grab, so the app looks frozen and the mic click appears to do nothing.
+        # Raise and focus first, then take the grab once the window is actually up.
+        def _present():
+            try:
+                win.deiconify()
+                win.lift()
+                win.focus_force()
+                win.attributes("-topmost", True)
+                win.after(300, lambda: win.attributes("-topmost", False))
+            except Exception:
+                pass
+            try:
+                win.grab_set()                 # modal: the caller waits on a choice
+            except Exception:
+                pass                           # non-modal is survivable; invisible-modal is not
+        try:
+            win.after(120, _present)
+        except Exception:
+            _present()
+
+        # If the window is closed without choosing, fall back to normal chat rather
+        # than silently never starting the recorder.
+        def _on_close():
+            try:
+                win.grab_release()
+                win.destroy()
+            except Exception:
+                pass
+            if callable(then):
+                then(self._voice_mode() or "normal")
+        try:
+            win.protocol("WM_DELETE_WINDOW", _on_close)
+        except Exception:
+            pass
+
+        box = ctk.CTkFrame(win)
+        box.pack(fill="both", expand=True, padx=14, pady=14)
+
+        ctk.CTkLabel(
+            box, text="\U0001f3a4  Where should your voice go?",
+            font=("Helvetica", 15, "bold"),
+        ).pack(anchor="w", pady=(0, 2))
+        ctk.CTkLabel(
+            box,
+            text=("Choose once — Arwanos will remember.\n"
+                  "Change it any time in Settings \u2192 Voice mode."
+                  if first_run else
+                  "Pick the pipeline spoken messages are sent to."),
+            text_color=V10["text_muted"], font=("DejaVu Sans", 11), justify="left",
+        ).pack(anchor="w", pady=(0, 12))
+
+        current = self._voice_mode() or "lo"
+        chosen = {"mode": current}
+
+        def _pick(mode: str):
+            chosen["mode"] = mode
+            self._save_voice_mode(mode)
+            try:
+                win.grab_release()
+                win.destroy()
+            except Exception:
+                pass
+            self.update_status(f"\U0001f3a4 Voice \u2192 {self._voice_mode_label(mode)}")
+            if callable(then):
+                then(mode)
+
+        for key, label, desc in self.VOICE_MODES:
+            row = ctk.CTkFrame(box, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            _sel = (key == current)
+            ctk.CTkButton(
+                row, text=label + ("   \u2713" if _sel else ""),
+                command=lambda k=key: _pick(k),
+                fg_color=V10["accent"] if _sel else "transparent",
+                hover_color=V10["accent_hover"],
+                border_width=0 if _sel else 1,
+                border_color=V10.get("border", "#334155"),
+                text_color="#ffffff" if _sel else V10["text"],
+                corner_radius=8, height=36, anchor="w",
+                font=("DejaVu Sans", 13),
+            ).pack(fill="x")
+            ctk.CTkLabel(
+                row, text="      " + desc, text_color=V10["text_muted"],
+                font=("DejaVu Sans", 10), anchor="w",
+            ).pack(fill="x")
+
+        if not first_run:
+            ctk.CTkButton(
+                box, text="Cancel", command=lambda: (win.grab_release(), win.destroy()),
+                fg_color="transparent", border_width=1,
+                border_color=V10.get("border", "#334155"),
+                text_color=V10["text_muted"], corner_radius=8, height=30,
+            ).pack(fill="x", pady=(10, 0))
+
     def _show_settings_dialog(self):
         """Show settings dialog with highlight color picker and future settings."""
         # Check if dialog already exists
@@ -9286,7 +10941,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
         try:
-            win.geometry("370x400")
+            win.geometry("370x510")
         except Exception:
             pass
         try:
@@ -9296,6 +10951,51 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         container = ctk.CTkFrame(win)
         container.pack(fill="both", expand=True, padx=12, pady=12)
+
+        # Section: Theme
+        ctk.CTkLabel(
+            container, text="Theme", font=("Helvetica", 14, "bold")
+        ).pack(anchor="w", pady=(0, 6))
+        _theme_row = ctk.CTkFrame(container, fg_color="transparent")
+        _theme_row.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(
+            _theme_row, text="🎨  Change theme…", command=self._show_theme_picker,
+            fg_color=V10["accent"], hover_color=V10["accent_hover"],
+            text_color="#ffffff", corner_radius=8, height=34,
+            font=("DejaVu Sans", 13),
+        ).pack(side="left")
+        ctk.CTkLabel(
+            container, text=f"Current: {getattr(self, '_active_theme', 'Midnight')}",
+            text_color=V10["text_muted"], font=("DejaVu Sans", 11),
+        ).pack(anchor="w", pady=(0, 12))
+
+        # Section: Voice mode
+        ctk.CTkLabel(
+            container, text="Voice mode", font=("Helvetica", 14, "bold")
+        ).pack(anchor="w", pady=(0, 6))
+        _vm_row = ctk.CTkFrame(container, fg_color="transparent")
+        _vm_row.pack(fill="x", pady=(0, 4))
+        _vm_lbl = ctk.CTkLabel(
+            container,
+            text=f"Current: {self._voice_mode_label(self._voice_mode() or 'normal')}",
+            text_color=V10["text_muted"], font=("DejaVu Sans", 11),
+        )
+
+        def _change_voice_mode():
+            def _after(mode):
+                try:
+                    _vm_lbl.configure(text=f"Current: {self._voice_mode_label(mode)}")
+                except Exception:
+                    pass
+            self._show_voice_mode_picker(_after, first_run=False)
+
+        ctk.CTkButton(
+            _vm_row, text="\U0001f3a4  Change voice mode\u2026", command=_change_voice_mode,
+            fg_color=V10["accent"], hover_color=V10["accent_hover"],
+            text_color="#ffffff", corner_radius=8, height=34,
+            font=("DejaVu Sans", 13),
+        ).pack(side="left")
+        _vm_lbl.pack(anchor="w", pady=(0, 12))
 
         # Section: Highlight Color
         ctk.CTkLabel(
@@ -10249,10 +11949,12 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                     idx.setdefault(w, []).append(i)
                     freq[w] = freq.get(w, 0) + 1
         self._session_idx = idx
-        # Wire index to SearchEngine so convo_search uses it too
+        # Wire index to SearchEngine so convo_search uses it too, plus the
+        # session date so retrieved turns can be labeled as historical.
         se = getattr(self, "search_engine", None)
         if se is not None:
             se._session_idx = idx
+            se._imported_session_date = getattr(self, "_imported_session_date", "")
         top = sorted(freq, key=freq.get, reverse=True)[:10]
         self._imported_session_summary = ("Topics: " + ", ".join(top)) if top else ""
         import logging
@@ -10377,6 +12079,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         restored_convo: list = []
         restored_highlights: list[dict] = []
         restored_comments: list[dict] = []
+        self._imported_session_date = ""
 
         def _normalize_imported(turns: list) -> list[dict]:
             cleaned: list[dict] = []
@@ -10427,6 +12130,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                     elif isinstance(data.get("turns"), list):
                         restored_convo = _normalize_imported(data.get("turns") or [])
                     transcript = data.get("transcript") or transcript
+                    self._imported_session_date = str(data.get("exported_at") or "")[:10]
                     restored_highlights = data.get("highlights") or []
                     restored_comments  = data.get("session_comments")  or []
                     restored_bookmarks = data.get("session_bookmarks") or []
@@ -11198,12 +12902,15 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         opts = {
             "temperature": dynamic_temp,
-            "num_ctx": 2048,      # reduced from 4096 — cuts prefill time in half
+            # One global num_ctx for EVERY call (config.json → ollama_settings.num_ctx).
+            # 2048 was truncating prompts (system persona + history got dropped),
+            # and mixed per-call values forced Ollama runner rebuilds — the big stalls.
+            "num_ctx": _ollama_runtime_cfg()["num_ctx"],
             "num_thread": max(4, (os.cpu_count() or 8) - 1),
             # num_gpu intentionally omitted — let Ollama auto-detect GPU layers
             # (setting -1 is invalid and causes CPU-only fallback)
             "num_predict": 960,   # default; overridden per-call by budget.max_response_tokens
-            "tfs_z": 1.0,
+            # tfs_z removed — deprecated in modern Ollama, only produced log warnings
             "top_k": 40,
             "top_p": 0.9,
         }
@@ -11236,6 +12943,264 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             logging.info(f"LLM ready: {type(self.llm).__name__} ({model_name})")
         else:
             logging.error(f"LLM init failed: {last_err}")
+
+        # header: color the status dot + reflect the active model in the menu
+        try:
+            dot = getattr(self, "_model_dot", None) or getattr(self, "_model_chip", None)
+            if dot is not None:
+                dot.configure(text="●", text_color=V10["ok"] if self.llm else V10["err"])
+            menu = getattr(self, "_model_menu", None)
+            if menu is not None and self.llm:
+                try: menu.set(model_name)
+                except Exception: pass
+        except Exception:
+            pass
+
+        # Fire-and-forget warm-up: pre-loads the model into VRAM with the exact
+        # num_ctx every later call uses, so the first real message never pays
+        # the cold-load (and keep_alive then keeps it resident).
+        if self.llm is not None and not getattr(self, "_llm_warmed", False):
+            self._llm_warmed = True
+
+            def _warm(l=self.llm):
+                try:
+                    l.invoke("Hi", options={"num_predict": 1})
+                    logging.info("LLM warm-up complete — model resident")
+                except Exception as e:
+                    logging.warning(f"LLM warm-up skipped: {e}")
+
+            threading.Thread(target=_warm, name="OllamaWarmup", daemon=True).start()
+
+    # ─────────────────────────────────────────────────────────────────────
+    # One-click model switcher (header dropdown). Lists local Ollama models
+    # and swaps the live model without a restart, persisting the choice.
+    # ─────────────────────────────────────────────────────────────────────
+    def _available_models(self) -> list:
+        cur = getattr(getattr(self, "llm", None), "model", None) or "llama3:8b-instruct-q4_K_M"
+        try:
+            import ollama
+            data = ollama.list()
+            raw = data.get("models", []) if isinstance(data, dict) else getattr(data, "models", [])
+            names = []
+            for m in raw:
+                n = (m.get("model") or m.get("name")) if isinstance(m, dict) \
+                    else (getattr(m, "model", None) or getattr(m, "name", None))
+                if n:
+                    names.append(n)
+            names = sorted(set(names))
+            if cur not in names:
+                names.insert(0, cur)
+            return names or [cur]
+        except Exception:
+            return [cur]
+
+    def _populate_model_menu(self):
+        menu = getattr(self, "_model_menu", None)
+        if menu is None:
+            return
+        models = self._available_models()
+        cur = getattr(getattr(self, "llm", None), "model", None) or models[0]
+        try:
+            menu.configure(values=models)
+            menu.set(cur if cur in models else models[0])
+        except Exception:
+            pass
+
+    def _on_model_menu_change(self, choice: str):
+        # ignore the placeholder and no-op reselects
+        if not choice or choice == "loading…":
+            return
+        cur = getattr(getattr(self, "llm", None), "model", None)
+        if choice == cur:
+            return
+        # a switch is still warming — refuse and snap the label back to reality
+        # so the dropdown never shows a model that isn't actually loaded yet
+        if getattr(self, "_switching_model", False):
+            menu = getattr(self, "_model_menu", None)
+            if menu is not None and cur:
+                try: menu.set(cur)
+                except Exception: pass
+            self.update_status("⏳ Still loading the previous model — one sec…")
+            return
+        self._switch_model(choice)
+
+    def _switch_model(self, name: str):
+        name = (name or "").strip()
+        if not name or getattr(self, "_switching_model", False):
+            return
+        self._switching_model = True
+
+        # persist the choice so it survives restart
+        try:
+            cfg_path = Path(__file__).resolve().parent / "config.json"
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg["model_name"] = name
+            cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+        # rebuild the live LLM with the same runtime options (num_ctx, keep_alive…)
+        try:
+            base_opts = dict(getattr(self.llm, "options", {}) or {})
+            temp = float(getattr(self.llm, "temperature", 0.2) or 0.2)
+            self.llm = SimpleOllama(model=name, temperature=temp, options=base_opts)
+            self._llm_ready = True
+        except Exception as e:
+            self._switching_model = False
+            self._reply_assistant(f"❌ Could not switch to `{name}`: {e}")
+            return
+
+        if getattr(self, "_model_dot", None) is not None:
+            self._model_dot.configure(text_color=V10["warn"])   # amber while loading
+        self.update_status(f"⏳ Loading {name}…")
+
+        def _warm():
+            ok = True
+            try:
+                self.llm.invoke("Hi", options={"num_predict": 1})
+            except Exception as e:
+                ok = False
+                import logging; logging.warning("model switch warm-up failed: %s", e)
+
+            def _finish():
+                self._switching_model = False
+                if getattr(self, "_model_dot", None) is not None:
+                    self._model_dot.configure(text_color=V10["ok"] if ok else V10["err"])
+                self.update_status("✅ Ready" if ok else f"❌ {name} failed to load")
+            self.after(0, _finish)
+
+        threading.Thread(target=_warm, name="ModelSwitchWarm", daemon=True).start()
+        self._reply_assistant(
+            f"**Model switched to `{name}`.** Everyday chat, search, and the Monitor "
+            "now use it. (`/lovelyq` stays on llama3 by design.) Your pick is saved.")
+
+    # ═════════════════════════════════════════════════════════════════════
+    # LIVE THEME ENGINE — one-click palette switching, no restart.
+    # Works by remapping every widget's current color from the old palette to
+    # the new one, so custom colors (syntax highlight, dragon red, status
+    # dots) are left untouched. Chat canvas re-styles via apply_chat_styling.
+    # ═════════════════════════════════════════════════════════════════════
+    @staticmethod
+    def _retint_widget(w, remap: dict):
+        for prop in ("fg_color", "hover_color", "text_color", "border_color",
+                     "button_color", "button_hover_color"):
+            try:
+                cur = w.cget(prop)
+            except Exception:
+                continue
+            if isinstance(cur, str) and cur.lower() in remap:
+                try:
+                    w.configure(**{prop: remap[cur.lower()]})
+                except Exception:
+                    pass
+
+    def _apply_theme(self, name: str, *, persist: bool = True, announce: bool = True):
+        theme = THEMES.get(name)
+        if not theme:
+            return
+        old = dict(V10)
+        V10.update(theme)                 # activate the new palette in place
+
+        # build an old-value → new-value remap for the tokens that changed
+        remap = {}
+        for k, nv in theme.items():
+            ov = old.get(k)
+            if ov and nv and ov.lower() != nv.lower():
+                remap[ov.lower()] = nv
+        for legacy, tok in THEME_LEGACY_REMAP_KEYS.items():
+            if theme.get(tok):
+                remap[legacy.lower()] = theme[tok]
+
+        # walk the whole widget tree and retint anything using an old token
+        def _walk(widget):
+            for child in widget.winfo_children():
+                self._retint_widget(child, remap)
+                _walk(child)
+        try:
+            self._retint_widget(self, remap)
+            _walk(self)
+        except Exception:
+            pass
+
+        # chat canvas + tags re-read V10 directly
+        try:
+            apply_chat_styling(self, zoom_delta=getattr(self, "_current_zoom_delta", 0))
+        except Exception:
+            pass
+        if not getattr(self, "_theme_is_red", False):
+            self._assistant_default_color = V10["assistant"]
+
+        self._active_theme = name
+        if persist:
+            try:
+                cfg_path = Path(__file__).resolve().parent / "config.json"
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                cfg["theme"] = name
+                cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
+                                    encoding="utf-8")
+            except Exception:
+                pass
+        if announce:
+            self.update_status(f"🎨 Theme: {name}")
+        # refresh the active marker in an open picker
+        if getattr(self, "_theme_swatches", None):
+            for tname, btn in self._theme_swatches.items():
+                try:
+                    btn.configure(text=("✓  " + tname) if tname == name else ("    " + tname))
+                except Exception:
+                    pass
+
+    def _load_saved_theme(self):
+        try:
+            cfg = json.loads(
+                (Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8"))
+            name = cfg.get("theme")
+            if name and name in THEMES and name != getattr(self, "_active_theme", "Midnight"):
+                self._apply_theme(name, persist=False, announce=False)
+        except Exception:
+            pass
+
+    def _show_theme_picker(self):
+        win = getattr(self, "_theme_picker_win", None)
+        try:
+            if win is not None and win.winfo_exists():
+                win.lift(); win.focus_set(); return
+        except Exception:
+            pass
+
+        win = ctk.CTkToplevel(self)
+        self._theme_picker_win = win
+        try:
+            win.title("Themes")
+            win.geometry("300x430")
+            win.configure(fg_color=V10["bg_base"])
+            win.transient(self)
+        except Exception:
+            pass
+
+        ctk.CTkLabel(win, text="🎨  Choose a theme",
+                     text_color=V10["text"], font=("DejaVu Sans", 15, "bold")
+                     ).pack(pady=(16, 10))
+
+        active = getattr(self, "_active_theme", "Midnight")
+        self._theme_swatches = {}
+        for tname, pal in THEMES.items():
+            row = ctk.CTkFrame(win, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            # colour preview chips (bg + two accents) so you see it before applying
+            for col in (pal["bg_elevated"], pal["accent"], pal["accent2"]):
+                ctk.CTkFrame(row, fg_color=col, width=18, height=30,
+                             corner_radius=5, border_width=1,
+                             border_color=pal["border"]).pack(side="left", padx=(0, 3))
+            btn = ctk.CTkButton(
+                row, text=("✓  " + tname) if tname == active else ("    " + tname),
+                anchor="w", command=lambda n=tname: self._apply_theme(n),
+                fg_color=pal["bg_surface"], hover_color=pal["bg_elevated"],
+                text_color=pal["text"], border_color=pal["accent"], border_width=1,
+                corner_radius=8, height=38, font=("DejaVu Sans", 13),
+            )
+            btn.pack(side="left", fill="x", expand=True, padx=(6, 0))
+            self._theme_swatches[tname] = btn
 
     async def _answer_howto(self, query: str, context: list[dict]) -> str:
         sys_hdr = (
@@ -11786,6 +13751,15 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
         sys_ov = self._intent_system_prompt(intent_str)
 
+        # Inject persistent chat memory — what we've learned about the user across
+        # sessions — so everyday answers stay continuous, not amnesiac.
+        try:
+            _mem = self._build_chat_memory_block(q)
+            if _mem:
+                sys_ov = f"{sys_ov}\n\n{_mem}"
+        except Exception:
+            pass
+
         # --- Adaptive Resource Management (ARM) ---
         profile = score_query(q, intent, self.conversation_history)
         budget  = ResourceBudget(profile)
@@ -12285,7 +14259,11 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         *,
         system_override=None,
         budget=None,
+        chat_mode: bool = False,
     ):
+        # chat_mode=True switches this call from retrieval-QA framing to
+        # conversation framing: a deep history window, no QA scaffolding, and a
+        # warmer temperature. Only /lo sets it — every other caller is unchanged.
         import asyncio, logging, datetime as _dt
 
         # make sure we actually have a usable model (not a Pydantic Field)
@@ -12327,6 +14305,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             return ""
 
         hist_text = ""
+        hist_lines: list = []
         if isinstance(conversation_history, list) and conversation_history:
             # ONLY use turns added after session import for hist_text.
             # Guard only applies when the passed history IS the main conversation_history
@@ -12339,9 +14318,14 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 post_import = conversation_history[imported_len:]
             else:
                 post_import = conversation_history  # lovely_hist, rag etc — use as-is
-            sel = post_import[-4:] if post_import else []
+            # Conversation needs depth; retrieval-QA does not. 4 turns is enough
+            # to answer a question about a context block, but it is not a
+            # conversation — it threw away the 30-turn window /lo had just built.
+            _keep, _clip = (24, 900) if chat_mode else (4, 400)
+            sel = post_import[-_keep:] if post_import else []
             lines = [_hist_line(t) for t in sel]
-            lines = [ln[:150] for ln in lines if ln]  # hard cap: 150 chars per turn
+            lines = [ln[:_clip] for ln in lines if ln]
+            hist_lines = lines
             hist_text = "\n".join(lines)
 
         if not intrinsic_only and context:
@@ -12376,30 +14360,97 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         if mode_instr:
             sys_hdr = f"{sys_hdr}\n\n[INSTRUCTION]\n{mode_instr}".strip()
 
-        prompt = (
-            f"{sys_hdr}\n\n"
-            f"Date: {_dt.date.today().isoformat()}\n\n"
-            f"Recent conversation (for context only — do NOT re-answer these):\n"
-            f"{hist_text or '(none)'}\n\n"
-            f"Extra context:\n{ctx_text or '(none)'}\n\n"
-            f"━━━ CURRENT QUESTION — answer THIS only ━━━\n"
-            f"{_get_username()}: {(query or '').strip()}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Arwanos:"
-        ).strip()
+        if chat_mode:
+            # Transcript framing. The QA scaffolding below ("answer THIS only",
+            # "Extra context: (none)") tells the model it is a lookup bot over a
+            # context block — which is why an off-memory question produced a
+            # thinner answer than no memory at all. A conversation gets none of it,
+            # and empty sections are omitted rather than announced as empty.
+            _parts = [sys_hdr, f"Date: {_dt.date.today().isoformat()}"]
+            if ctx_text:
+                _parts.append(f"Things you already know that may be relevant:\n{ctx_text}")
+            _tail = (f"{_get_username()}: {(query or '').strip()}\n"
+                     "Arwanos:")
+
+            # Fit the prompt to the context window, oldest turn first.
+            # num_ctx covers prompt AND reply: overflow makes the runtime discard
+            # from the FRONT, which silently deletes sys_hdr — the model then answers
+            # with none of the rules it was given and looks like it ignored them.
+            # Dropping the oldest turns instead costs the least and keeps the rules,
+            # the recall block and the current question intact.
+            try:
+                _num_ctx = int((getattr(llm, "options", {}) or {}).get("num_ctx") or 8192)
+            except Exception:
+                _num_ctx = 8192
+            _reserve = 1024                       # room for the reply
+            _fixed = _parts + [_tail]
+            # Tokens per char depends on the script, and guessing English here
+            # overflows on Arabic: the same 900-char turn measures ~4.8 chars/token
+            # in English but ~3.0 in Arabic, so a fixed English ratio under-counts
+            # by 60% and the trim loop stops early. Sample the text instead.
+            def _ratio(text: str) -> float:
+                if not text:
+                    return 4.0
+                _sample = text[:4000]
+                _dense = sum(1 for c in _sample if ord(c) > 0x2FF)
+                return 2.5 if _dense > len(_sample) * 0.15 else 4.0
+
+            def _est(parts, h):
+                _all = "".join(parts) + "".join(h)
+                return len(_all) / _ratio(_all)
+            _h = list(hist_lines)
+            while _h and _est(_fixed, _h) > (_num_ctx - _reserve):
+                _h.pop(0)                          # drop the oldest turn
+            if _dropped := len(hist_lines) - len(_h):
+                logging.info("chat prompt over budget — dropped %d oldest turn(s)", _dropped)
+
+            _parts.append(
+                "Conversation so far:\n" + ("\n".join(_h) or "(this is the first message)")
+            )
+            _parts.append(_tail)
+            prompt = "\n\n".join(_parts).strip()
+        else:
+            prompt = (
+                f"{sys_hdr}\n\n"
+                f"Date: {_dt.date.today().isoformat()}\n\n"
+                f"Recent conversation (for context only — do NOT re-answer these):\n"
+                f"{hist_text or '(none)'}\n\n"
+                f"Extra context:\n{ctx_text or '(none)'}\n\n"
+                f"━━━ CURRENT QUESTION — answer THIS only ━━━\n"
+                f"{_get_username()}: {(query or '').strip()}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Arwanos:"
+            ).strip()
 
         # ── helper: strip <think> blocks from any raw LLM output ──
         _st = self._strip_think
 
+        # Consume a pending stream callback (set by the plain-chat path) exactly
+        # once — so the first real synthesis streams live, and any refusal/retry
+        # falls back to normal blocking calls without double-streaming.
+        _stream_cb = getattr(self, "_active_stream_cb", None)
+        if _stream_cb is not None:
+            self._active_stream_cb = None
+
         # --- Try async interfaces first ---
         try:
-            # Build per-call options: start from the LLM's base opts so num_ctx=2048
-            # is always preserved, then cap num_predict from the budget (hard max 512).
+            # Build per-call options: start from the LLM's base opts so the global
+            # num_ctx is always preserved, then cap num_predict from the budget.
             _base_opts = dict(getattr(llm, "options", {}) or {})
             if budget and hasattr(budget, "max_response_tokens"):
                 _cap = min(budget.max_response_tokens, 1600)  # hard max raised to allow complete answers
                 _base_opts["num_predict"] = _cap
+            if chat_mode:
+                # The global 0.2 is an extraction temperature — right for /analyze
+                # and /rag, but it makes conversation terse and repetitive.
+                _base_opts["temperature"] = 0.75
+                _base_opts["repeat_penalty"] = 1.15
             _call_opts = _base_opts if _base_opts else None
+            if _stream_cb is not None and hasattr(llm, "astream"):
+                full = await llm.astream(prompt, _stream_cb, options=_call_opts)
+                if full:
+                    return _st(full.strip())
+                # empty stream → fall through to a normal blocking call
             if hasattr(llm, "ainvoke"):
                 r = await llm.ainvoke(prompt, options=_call_opts)
                 return _st((getattr(r, "content", None) or str(r or "")).strip())
@@ -12686,9 +14737,201 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 self._vo_pending = False
                 self.after(0, lambda t=text: self._speak_response(t))
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Live streaming preview — tokens appear as the model generates them,
+    # then the final text is re-rendered richly (code blocks / RTL / markdown).
+    # The preview is a plain live echo; the polished version replaces it only
+    # when it actually contains rich markup, so short answers never "flash".
+    # ─────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _looks_rich(text: str) -> bool:
+        t = text or ""
+        return any(m in t for m in ("```", "**", "\n# ", "\n## ", "\n- ", "\n* ",
+                                    "\n1.", "| ", "http://", "https://")) or has_arabic(t)
+
+    def _stream_prepare(self):
+        """Return a thread-safe token sink, or None if streaming is disabled."""
+        if not getattr(self, "_streaming_enabled", True):
+            return None
+        if getattr(self, "chat_history", None) is None:
+            return None
+        self._stream_start_idx = None
+
+        def _sink(piece: str):
+            # on_token fires on the bg loop thread — marshal to the Tk main thread
+            try:
+                self.after(0, lambda p=piece: self._stream_append(p))
+            except Exception:
+                pass
+        return _sink
+
+    def _stream_append(self, piece: str):
+        ch = getattr(self, "chat_history", None)
+        if ch is None:
+            return
+        try:
+            if getattr(self, "_stream_start_idx", None) is None:
+                self._stream_start_idx = ch.index("end-1c")   # before the prefix
+                ch.insert("end", "Arwanos: ", ("assistant",))
+                self.update_status("💬 typing…")
+            ch.insert("end", piece, ("assistant",))
+            ch.see("end")
+        except Exception:
+            pass
+
+    def _stream_clear(self):
+        """Delete the streamed preview (nothing rendered yet → no-op)."""
+        ch = getattr(self, "chat_history", None)
+        idx = getattr(self, "_stream_start_idx", None)
+        if ch is not None and idx is not None:
+            try:
+                ch.delete(idx, "end")
+            except Exception:
+                pass
+        self._stream_start_idx = None
+
+    def _finalize_stream(self, out: str):
+        """Called after a streamed answer completes. Keep the plain preview when
+        it's already faithful; re-render richly only when markup is present."""
+        out = (out or "").strip()
+        streamed = getattr(self, "_stream_start_idx", None) is not None
+
+        if not streamed or self._looks_rich(out):
+            # nothing streamed, or needs rich rendering → clean slate + full render
+            self._stream_clear()
+            if out:
+                self._reply_assistant(out)
+            return
+
+        # plain answer already fully visible — just finish the line + bookkeeping
+        try:
+            self.chat_history.insert("end", "\n\n")
+            self._insert_separator_line()
+        except Exception:
+            pass
+        self._stream_start_idx = None
+        if hasattr(self, "_push_hist"):
+            self._push_hist("assistant", out)
+        if getattr(self, "_vo_pending", False) and len(out) > 10:
+            self._vo_pending = False
+            self.after(0, lambda t=out: self._speak_response(t))
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Persistent chat memory — facts the assistant learns about the user in
+    # normal conversation, remembered across restarts. Mirrors the proven /lo
+    # memory pattern but scoped to everyday chat, so answers stay continuous
+    # day to day instead of resetting to the last 4 turns.
+    # ─────────────────────────────────────────────────────────────────────
+    def _chat_memory_path(self) -> Path:
+        try:
+            return self.paths["data_dir"] / "chat_memory.json"
+        except Exception:
+            return Path(__file__).resolve().parent / "data" / "chat_memory.json"
+
+    def _load_chat_memory(self) -> list:
+        try:
+            p = self._chat_memory_path()
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                return data if isinstance(data, list) else []
+        except Exception:
+            pass
+        return []
+
+    def _save_chat_memory(self, facts: list) -> None:
+        try:
+            p = self._chat_memory_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(facts[-200:], ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+        except Exception:
+            pass
+
+    def _build_chat_memory_block(self, query: str = "", limit: int = 14) -> str:
+        facts = self._load_chat_memory()
+        if not facts:
+            return ""
+        # Rank query-relevant facts first (keyword overlap), then most recent —
+        # so the model sees what matters now without dumping the whole store.
+        qwords = {w for w in re.findall(r"[a-z]{4,}", (query or "").lower())}
+
+        def _score(f):
+            fw = {w for w in re.findall(r"[a-z]{4,}", (f.get("fact", "") or "").lower())}
+            return (len(qwords & fw), f.get("ts", 0))
+
+        ranked = sorted(facts, key=_score, reverse=True)[:limit]
+        lines = [f"- {f.get('fact', '').strip()}" for f in ranked if f.get("fact")]
+        if not lines:
+            return ""
+        return (f"[WHAT YOU ALREADY KNOW ABOUT {_get_username()} — use naturally, "
+                "do not recite]\n" + "\n".join(lines))
+
+    async def _extract_and_save_chat_memory(self, user_msg: str, assistant_reply: str) -> None:
+        """Background: pull concrete new facts from a chat turn and store them."""
+        llm = getattr(self, "llm", None)
+        if not llm or len((user_msg or "").strip()) < 15:
+            return
+        prompt = (
+            "Extract CONCRETE, durable facts about the user from this chat turn.\n"
+            "RULES:\n"
+            "- Only facts EXPLICITLY stated by the user. Never infer.\n"
+            "- Must be specific and lasting (projects, goals, preferences, tools, situation).\n"
+            "- Skip transient reactions and anything about the assistant.\n"
+            "- Max 18 words per fact.\n"
+            'Return ONLY a JSON list: [{"fact":"...","category":"goals|preferences|projects|situation|topics|general"}]\n'
+            "If nothing durable, return [].\n\n"
+            f"User: {user_msg[:400]}\n"
+            f"Assistant: {assistant_reply[:200]}\n\nFacts:"
+        )
+        try:
+            r = await llm.ainvoke(prompt, options={"num_predict": 200, "temperature": 0.1})
+            raw = (getattr(r, "content", None) or str(r or "")).strip()
+        except Exception:
+            return
+        try:
+            raw = re.sub(r"```[a-z]*", "", raw).strip().strip("`").strip()
+            m = re.search(r"\[.*\]", raw, re.DOTALL)
+            new_facts = json.loads(m.group() if m else raw)
+            if not isinstance(new_facts, list):
+                return
+        except Exception:
+            return
+        if not new_facts:
+            return
+
+        existing = self._load_chat_memory()
+        seen = {(f.get("fact", "") or "").lower()[:40] for f in existing}
+        added = 0
+        for f in new_facts:
+            if not isinstance(f, dict):
+                continue
+            fact = (f.get("fact") or "").strip()
+            if len(fact) < 6 or fact.lower()[:40] in seen:
+                continue
+            existing.append({
+                "fact": fact,
+                "category": (f.get("category") or "general").strip().lower(),
+                "ts": int(time.time()),
+            })
+            seen.add(fact.lower()[:40])
+            added += 1
+        if added:
+            self._save_chat_memory(existing)
+
     def update_status(self, msg: str):
         if hasattr(self, "after") and hasattr(self, "status_bar") and self.status_bar:
-            self.after(0, lambda: self.status_bar.configure(text=msg))
+            # state-aware tint: green when ready, red on errors, amber while busy
+            m = msg or ""
+            if "✅" in m or "Ready" in m:
+                _tint = V10["ok"]
+            elif "❌" in m or "rror" in m or "fail" in m.lower():
+                _tint = V10["err"]
+            elif any(t in m for t in ("⏳", "…", "...", "ing")):
+                _tint = V10["warn"]
+            else:
+                _tint = V10["text_faint"]
+            self.after(0, lambda: self.status_bar.configure(
+                text=f"  {m}", text_color=_tint))
 
     # ------- background loop (kept as your reliable variant) -------
     def _start_background_loop(self):
@@ -13659,7 +15902,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             return
 
         try:
-            kwargs = {"options": {"num_predict": 1400, "num_ctx": 4096}}
+            kwargs = {"options": {"num_predict": 1400}}  # num_ctx inherited from base opts
             if hasattr(llm, "achat"):
                 messages = [
                     {"role": "system", "content":
@@ -13775,10 +16018,14 @@ def _quick_selftest(app):
     )
 
     ok = all(bool(v) for _, v in checks)
-    lines = ["🧪 Quick self-test:"]
-    for name, val in checks:
-        lines.append(f"- {'✅' if val else '❌'} {name}")
-    app._append_conversation("system", "\n".join(lines))
+    # Silent when healthy — the checklist was pure developer noise on every
+    # startup. Only speak up (one compact line) when something is broken.
+    import logging
+    if ok:
+        logging.info("Self-test: all %d checks passed", len(checks))
+    else:
+        failed = ", ".join(name for name, val in checks if not val)
+        app._append_conversation("system", f"⚠️ Startup check failed: {failed}")
     app.update_status("✅ Ready" if ok else "⚠️ Some UI parts missing")
 
     # ── 🐉 Dragon-girl welcome art (terminal + Tk chat) ──────────────────

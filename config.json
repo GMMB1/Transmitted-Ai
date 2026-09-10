@@ -1,8 +1,24 @@
 {
   "model_name": "llama3:8b-instruct-q4_K_M",
   "ollama_settings": {
-    "temperature": 0.2
+    "temperature": 0.2,
+    "num_ctx": 8192,
+    "keep_alive": "30m"
   },
   "demo_mode": false,
-  "username": "GMM"
+  "username": "GMM",
+  "voice": {
+    "model": "base.en",
+    "language": "en",
+    "device": "default",
+    "threshold": 0.025,
+    "silence_ms": 1300,
+    "max_turn_ms": 20000,
+    "start_timeout_ms": 8000,
+    "barge_in": false,
+    "barge_threshold": 0.045,
+    "barge_need_ms": 260,
+    "mode": "lo"
+  },
+  "theme": "Rose"
 }

@@ -84,8 +84,8 @@ const App = {
                                 item.style.cssText = 'padding: 10px; margin: 5px 0; background: var(--bg-secondary); border-radius: 8px; cursor: pointer;';
                                 item.innerHTML = `<strong>${f.filename}</strong>`;
                                 item.addEventListener('click', async () => {
-                                    const content = await fetch(`/api/analysis/${f.filename}`).then(r => r.text());
-                                    this.showAnalysisContent(content, f.filename);
+                                    const data = await fetch(`/api/analysis/${encodeURIComponent(f.filename)}`).then(r => r.json());
+                                    this.showAnalysisContent(data.ok ? data.content : (data.error || 'Could not load.'), f.filename);
                                 });
                                 list.appendChild(item);
                             });
@@ -443,20 +443,67 @@ const App = {
             setTimeout(() => {
                 btn.style.transform = 'scale(1)';
             }, 100);
-            
+
             try {
-                const res = await fetch('/api/analysis/random');
-                const data = await res.json();
-                
-                if (data.ok) {
-                    this.showAnalysisContent(data.content, data.filename);
+                // /api/analysis returns files newest-first — open the latest,
+                // let the picker in the modal switch to any other one.
+                const res = await fetch('/api/analysis');
+                const files = await res.json();
+
+                if (Array.isArray(files) && files.length > 0) {
+                    this.showFlashback(files, files[0].filename);
                 } else {
-                    Toast.info("The user still does't use the analyis button yet and the folder empty"); 
+                    Toast.info("No analyses saved yet — use the Analyze button first");
                 }
             } catch (e) {
-                 Toast.error("Failed to fetch random analysis");
+                 Toast.error("Failed to load analyses");
             }
         });
+    },
+
+    /**
+     * Flashback viewer: renders one saved analysis with a picker to switch
+     * between all files in data/analysis (newest first) and a random jump.
+     */
+    showFlashback(files, filename) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal';
+        const options = files.map(f =>
+            `<option value="${f.filename}">${f.filename.replace(/\.txt$/, '')}</option>`
+        ).join('');
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 800px; max-height: 80vh; overflow-y: auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+                    <h2 id="fb-title" style="margin:0;"></h2>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <select id="fb-select" class="journal-input" style="width:auto; max-width:260px; font-size:.85rem; padding:6px 10px;">${options}</select>
+                        <button id="fb-random" class="secondary-btn" title="Random flashback" style="padding:6px 10px;">🎲</button>
+                    </div>
+                </div>
+                <div id="fb-content" style="white-space: pre-wrap; font-size: 1.1rem; line-height: 1.6;">Loading…</div>
+                <button id="fb-close" class="secondary-btn" style="margin-top: 25px;">Close</button>
+            </div>
+        `;
+        overlay.querySelector('#fb-close').addEventListener('click', () => overlay.remove());
+        document.body.appendChild(overlay);
+
+        const load = async (fn) => {
+            overlay.querySelector('#fb-select').value = fn;
+            overlay.querySelector('#fb-title').textContent = fn.replace(/\.txt$/, '');
+            const el = overlay.querySelector('#fb-content');
+            el.textContent = 'Loading…';
+            try {
+                const data = await fetch(`/api/analysis/${encodeURIComponent(fn)}`).then(r => r.json());
+                el.textContent = data.ok ? data.content : (data.error || 'Could not load this analysis.');
+            } catch (e) {
+                el.textContent = 'Could not load this analysis.';
+            }
+        };
+        overlay.querySelector('#fb-select').addEventListener('change', (e) => load(e.target.value));
+        overlay.querySelector('#fb-random').addEventListener('click', () => {
+            load(files[Math.floor(Math.random() * files.length)].filename);
+        });
+        load(filename);
     },
 
     /**

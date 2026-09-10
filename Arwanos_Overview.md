@@ -142,7 +142,7 @@ _pattern_summary(all_entries)
 → mood trend, activity counts, emotion counts, gap days
     │
     ▼
-Single LLM call (8192 ctx, 1200 tokens)
+Single LLM call (global num_ctx from config.json, 1400 tokens)
 with rich psychoanalytical system prompt
     │
     ▼
