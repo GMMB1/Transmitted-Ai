@@ -4,7 +4,7 @@
 
 # Arwanos — Transmitted AI Personal Assistant
 
-**Arwanos** is a locally-running, privacy-first AI assistant built in Python.  
+**Arwanos** is a locally-running AI assistant built in Python.  
 It runs entirely on your machine using **Ollama** as the inference backend — no data ever leaves your device, no cloud API is called for core reasoning.
 
 This project is part of **Transmitted AI** — a framework that goes beyond standard RAG and chatbot patterns by infusing psychological awareness, adaptive resource management, and behavioral analysis into a local AI system.
@@ -74,8 +74,8 @@ It bypasses Llama's default restrictions in everything except the ultra-sensitiv
 
 # Key Features
 
-### Lo & Streamline Response
-Switch between model-only knowledge and live enriched web context, and integrate both in the same session.
+### Lo (Companion Mode) & Permanent Memory
+`/lo` acts as a conversational companion with a permanent long-term memory system. After every conversation, it extracts new facts about you and stores them in a dedicated memory block. It also indexes all your past conversations using semantic vector search (ChromaDB). This allows it to recall very specific past topics naturally, without having to load the entire chat history into context at once. It is also **time-aware** — tracking conversation dates, understanding gaps between sessions, and seamlessly archiving older conversations so no memory is ever lost.
 
 ### Analyze Mode (`/analyze`)
 A psychologically-aware analysis engine.  
@@ -104,15 +104,14 @@ Searches an imported JSON session using a keyword inverted index built at import
 | `/analyze <query>` | Psychological journal analysis |
 | `/deep <question>` | Forced live web search |
 | `/rag <question>` | Search imported session |
-| `/ap <query>` | Arabic processing pipeline — full AR→EN→pipeline→AR sandwich |
-| `/tr <text>` | Translate English ↔ Arabic |
+| `/vo /lo <text>` | Companion mode + text-to-speech voice output |
 | `/webui start` | Launch local web interface |
 
 ### Hybrid UI
 Runs as a modern Desktop App (CustomTkinter) or a full local Web Application (Flask). All data stays on `127.0.0.1` — nothing is sent to external servers.
 
-### Bilingual — Arabic / English
-Arabic text is detected via a 15% character threshold and rendered with full BiDi/RTL support using `python-bidi`. Stray Arabic characters in English text do not trigger reversal.
+### Voice Interface & Dictation
+Arwanos supports voice dictation and hands-free voice calls. It features a built-in mode picker allowing you to route voice queries directly into `/lo`, `/analyze`, or `/deep`. It also includes VAD (Voice Activity Detection) auto-calibration that intelligently adapts to your room's background noise, knowing exactly when you naturally pause speaking.
 
 ---
 
@@ -221,7 +220,6 @@ pip install -r requirements.txt
 |---|---|
 | `pygame` | Cross-platform audio (dragon sounds) |
 | `playsound` | Lightweight audio fallback |
-| `chromadb` | Vector memory / RAG storage |
 | `spacy` | NLP / language detection |
 | `nltk` | Tokenization |
 | `pdfplumber` | Import PDF files into sessions |
@@ -388,32 +386,7 @@ For conversational mode (talks *with* you):
 
 ---
 
-## Arabic Processing Mode (`/ap`)
 
-`/ap` is a full **AR → EN → pipeline → AR** translation sandwich.  
-Write your query in Arabic — Arwanos translates it to English using `qwen2.5:7b`, runs it through the chosen pipeline (`llama3:8b`), then translates the answer back to Arabic.
-
-```
-/ap <query>
-```
-
-You can also combine it with any other pipeline using a flag:
-
-| Command | What it runs |
-|---|---|
-| `/ap <query>` | Normal RAG pipeline |
-| `/ap -lo <query>` | Lo companion mode |
-| `/ap -analyze <query>` | Journal analysis |
-| `/ap -rag <query>` | RAG session search |
-| `/ap -deep <query>` | Deep live web search |
-
-
-Arwanos translates the Arabic to English, does a live web search, synthesizes the results, then returns the answer in Arabic.
-
-> **Requires:** `qwen2.5:7b` pulled in Ollama alongside your main model.
-> ```bash
-> ollama pull qwen2.5:7b
-> ```
 
 ---
 
@@ -673,7 +646,6 @@ The monitor tracks cumulative engagement across sessions:
 | Web search | ARM-adaptive — only when needed | Always on or always off |
 | Psychoanalysis | Reads private journal, intent-aware | No personal data |
 | Session RAG | Keyword-indexed, near-instant lookup | Full re-scan every query |
-| Bilingual | Native Arabic BiDi rendering | Basic Unicode |
 | Resource control | Per-query ARM budget | Fixed context / token limit |
 | **Mental State Monitor** | **ML tuning + 3-source training + anti-duplication** | **No equivalent** |
 | **Psychology datasets** | **7,557 professional examples, locally indexed** | **No equivalent** |
