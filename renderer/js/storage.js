@@ -16,11 +16,57 @@ const Storage = {
         lastSuggestedDates: [] // Track last 10 suggested dates
     },
 
+    // Demo mode swaps the SERVER data folder, but weekly/monthly reports, notes
+    // and templates live in localStorage, which the server cannot switch. Without
+    // namespacing the key, real personal reports render while the UI claims to be
+    // in demo mode — which is exactly when screenshots get taken for publication.
+    _mode: 'personal',
+
+    _storageKey() {
+        return this._mode === 'demo'
+            ? 'daily_productivity_full_data__demo'
+            : 'daily_productivity_full_data';
+    },
+
+    async _loadMode() {
+        try {
+            const r = await fetch('/api/data-mode');
+            if (r.ok) this._mode = (await r.json()).mode || 'personal';
+        } catch (e) {
+            this._mode = 'personal';   // server unreachable — never guess "demo"
+        }
+    },
+
+    // Demo weekly/monthly reports. These live only in localStorage, so unlike the
+    // journal and habits (seeded server-side into data_test/) they have no other
+    // home — without this, Demo mode showed either the real reports or nothing.
+    _DEMO_REPORTS: {
+        weeklyReports: [{"id": "2026-9-1", "year": 2026, "month": 9, "week": 1, "rating": "7", "title": "Back into a rhythm", "details": "Four study sessions this week instead of the usual two. Deciding the night before what to work on saved the first twenty minutes I usually waste choosing.\n\nThe database assignment is half done and, for once, not the night before the deadline. Still can't stop at a reasonable hour though.", "savedAt": "2026-09-10T09:00:00.000Z"}, {"id": "2026-8-4", "year": 2026, "month": 8, "week": 4, "rating": "4", "title": "Too much setup, not enough building", "details": "Lost Tuesday and Wednesday reconfiguring my environment. Felt productive, shipped nothing. Two good sessions at the end pulled it back. Rule for next week: no tooling changes on a day something is due.", "savedAt": "2026-08-10T09:00:00.000Z"}, {"id": "2026-8-2", "year": 2026, "month": 8, "week": 2, "rating": "8", "title": "Study group is working", "details": "Met the group twice. Explaining recursion out loud made it stick in a way reading never did. Best week of the term — worth protecting this slot.", "savedAt": "2026-07-10T09:00:00.000Z"}, {"id": "2026-7-3", "year": 2026, "month": 7, "week": 3, "rating": "5", "title": "Flat week", "details": "Nothing went wrong, nothing stood out. Kept up with the reading, submitted on time, slept badly. I judge these weeks harshly, but the work got done.", "savedAt": "2026-06-10T09:00:00.000Z"}],
+        monthlyReports: [{"id": "2026-8", "year": 2026, "month": 8, "rating": "7", "title": "August — found the pattern", "details": "My good weeks all started with a plan made the night before; the bad ones started with me opening the laptop and deciding then. Three of four weeks hit their target. Carrying that into September.", "savedAt": "2026-08-28T09:00:00.000Z"}, {"id": "2026-7", "year": 2026, "month": 7, "rating": "5", "title": "July — steady, unremarkable", "details": "No disasters, no breakthroughs. Submissions on time. Sleep was the weak point — late nights and useless mornings. That's the thing to fix.", "savedAt": "2026-07-28T09:00:00.000Z"}],
+    },
+
+    _seedDemoReportsIfEmpty() {
+        // Only in Demo mode, and only when the demo store has no reports yet, so a
+        // user's own edits to the demo workspace are never overwritten.
+        if (this._mode !== 'demo') return;
+        try {
+            const key = this._storageKey();
+            const cur = JSON.parse(localStorage.getItem(key) || '{}');
+            if ((cur.weeklyReports && cur.weeklyReports.length) ||
+                (cur.monthlyReports && cur.monthlyReports.length)) return;
+            cur.weeklyReports = this._DEMO_REPORTS.weeklyReports;
+            cur.monthlyReports = this._DEMO_REPORTS.monthlyReports;
+            localStorage.setItem(key, JSON.stringify(cur));
+        } catch (e) { /* localStorage blocked — Demo just shows no reports */ }
+    },
+
     /**
      * Initialize storage - load data from disk or localStorage
      */
     async init() {
         try {
+            await this._loadMode();
+            this._seedDemoReportsIfEmpty();
             // Try to load journals from Flask API first
             const apiJournals = await this.fetchJournalsFromAPI();
             if (apiJournals && apiJournals.length >= 0) {
@@ -33,7 +79,7 @@ const Storage = {
             }
 
             // Load other data from localStorage (habits excluded — API-only)
-            const localData = localStorage.getItem('daily_productivity_full_data');
+            const localData = localStorage.getItem(this._storageKey());
             if (localData) {
                 const data = JSON.parse(localData);
                 // Don't overwrite journals from API
@@ -198,7 +244,7 @@ const Storage = {
                 }
             } else {
                 // Web/Mobile Mode
-                localStorage.setItem('daily_productivity_full_data', JSON.stringify(data));
+                localStorage.setItem(this._storageKey(), JSON.stringify(data));
                 console.log('Saved to localStorage (Web Mode)');
             }
         } catch (error) {
@@ -283,7 +329,7 @@ const Storage = {
                 habits: this.habits,
                 settings: this.settings
             };
-            localStorage.setItem('daily_productivity_full_data', JSON.stringify(data));
+            localStorage.setItem(this._storageKey(), JSON.stringify(data));
         } catch (error) {
             console.error('Error saving local data:', error);
         }
@@ -610,6 +656,30 @@ window.Storage = Storage;
             if (version !== _lastVersion) {
                 _lastVersion = version;
 
+                // Re-point localStorage at the new mode's key and reload what it
+                // backs. Without this the habits board switches but the weekly and
+                // monthly reports on screen still belong to the previous mode —
+                // the personal ones stay visible while the UI says "Demo".
+                await Storage._loadMode();
+                Storage._seedDemoReportsIfEmpty();
+                try {
+                    const raw = localStorage.getItem(Storage._storageKey());
+                    const d = raw ? JSON.parse(raw) : {};
+                    Storage.weeklyReports  = d.weeklyReports  || [];
+                    Storage.monthlyReports = d.monthlyReports || [];
+                    Storage.templates      = d.templates      || [];
+                    Storage.quickNotes     = d.quickNotes     || '';
+                    Storage.favorites      = d.favorites      || [];
+                } catch (_) {
+                    Storage.weeklyReports = Storage.monthlyReports = [];
+                }
+                try {
+                    const j = await Storage.fetchJournalsFromAPI();
+                    if (Array.isArray(j)) {
+                        Storage.journals = j.map(x => ({ ...x, dailyRating: x.mood || 5 }));
+                    }
+                } catch (_) { /* keep what we have */ }
+
                 // Re-fetch habits from the newly active data folder.
                 // 200 = use file (demo or personal habits.json).
                 // 204 = no habits.json → fall back to localStorage so personal
@@ -620,7 +690,7 @@ window.Storage = Storage;
                     if (Array.isArray(data)) Storage.habits = data;
                 } else if (habitsResp.status === 204) {
                     try {
-                        const local = localStorage.getItem('daily_productivity_full_data');
+                        const local = localStorage.getItem(Storage._storageKey());
                         Storage.habits = (local ? JSON.parse(local).habits : null) || [];
                     } catch (_) { Storage.habits = []; }
                 }

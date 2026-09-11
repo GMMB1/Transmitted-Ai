@@ -10,7 +10,7 @@ It runs entirely on your own machine using **Ollama** as the inference backend �
 
 **Model:** `llama3:8b-instruct-q4_K_M` (quantized, GPU-accelerated)  
 **Interface:** Native desktop GUI (CustomTkinter) + optional local Web UI (Flask)  
-**Languages:** English and Arabic (full BiDi/RTL rendering support)
+**Language:** English
 
 ---
 
@@ -44,7 +44,6 @@ _call_llm_with_context()
 SimpleOllama → Ollama HTTP API → LLM
     │
     ▼
-BiDi/RTL post-process → Display
 ```
 
 ---
@@ -185,47 +184,9 @@ Selected text (≤600 chars) + question → DIRECT LLM call
 
 ---
 
-### 7. `/tr <text>`
-**Trigger:** `/tr` command  
-**Function:** Detects source language → translates to English (if Arabic) or Arabic (if English) → explains key terms.
-
----
-
 ### 8. `/webui`
 **Trigger:** `/webui start`  
 **Function:** Starts a local Flask web server. Provides a web interface for journal browsing, date-range analysis, and weekly reports. All data stays local — the server binds to `127.0.0.1` only.
-
----
-
-### 9. `/ap <query>`
-**Trigger:** `/ap` command  
-**Pipeline:**
-```
-Arabic query
-    │
-    ▼
-AR → EN  (qwen2.5:7b, num_ctx: 4096)
-    │
-    ▼
-Selected pipeline (flag-controlled)
-    │
-    ▼
-EN → AR  (qwen2.5:7b)
-    │
-    ▼
-Arabic response → Display
-```
-**Available flags:**
-
-| Flag | Pipeline used |
-|---|---|
-| *(none)* | Normal RAG |
-| `-lo` | Lovely companion |
-| `-lovelyq` | Journal analysis |
-| `-rag` | RAG session search |
-| `-deep` | Deep live web search |
-
-**What it does:** A full translation sandwich. The user writes in Arabic, Arwanos translates to English, runs the chosen pipeline, then translates the answer back to Arabic. Requires `qwen2.5:7b` pulled in Ollama.
 
 ---
 
@@ -327,9 +288,6 @@ Once pointing at `data_test/`, use these to verify all pipelines work:
 
 ## Unique Technical Features
 
-### BiDi / RTL Support
-Arabic text is detected using a **15% character threshold** (at least 15% of non-whitespace chars must be Arabic). When true, the text is processed through the `python-bidi` library and wrapped in RTL Unicode markers before display. English text with stray Arabic characters does NOT trigger reversal.
-
 ### Session Import + Keyword Index
 When a JSON session is imported:
 1. An **inverted keyword index** `{word → [turn_indices]}` is built in Python
@@ -350,7 +308,6 @@ The `_route_user_input_async` function previously bypassed ARM entirely. It now 
 | Web search | ARM-adaptive (only when needed) | Always on or always off |
 | Psychoanalysis | Reads private journal, intent-aware | No personal data |
 | Session RAG | Keyword-indexed O(1) lookup | Full re-scan every query |
-| Bilingual | Native Arabic BiDi rendering | Basic Unicode |
 | Resource control | Per-query ARM budget | Fixed context/token limit |
 | Persona | Named character with emotional depth | Generic assistant |
 

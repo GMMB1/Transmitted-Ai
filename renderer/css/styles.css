@@ -502,7 +502,6 @@ button:active { transform: translateY(0) !important; }
     color: var(--text-muted);
     font-size: 0.82rem;
     margin: 8px 0;
-    direction: rtl;
     line-height: 1.5;
 }
 
@@ -556,7 +555,6 @@ button:active { transform: translateY(0) !important; }
     font-size: 0.82rem;
     margin-bottom: 10px;
     line-height: 1.4;
-    direction: rtl;
     flex: 1;
     overflow: hidden;
     display: -webkit-box;

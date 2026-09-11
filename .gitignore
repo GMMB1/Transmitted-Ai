@@ -57,3 +57,6 @@ Hunt/
 
 # ── PRIVATE: raw image sources / scratch ─────────────────────────────────────
 ChatGPT Image *.png
+
+# Screenshots that still contain real personal data — never commit
+demo/_private_do_not_commit/

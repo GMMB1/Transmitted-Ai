@@ -1,0 +1,58 @@
+name: 💬 Share your experience
+description: Tried Arwanos? Tell us how it went — good, bad, or confusing.
+title: "[Feedback] "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Arwanos. Honest feedback — especially about what didn't work — is the most useful thing you can give this project. A few sentences is plenty.
+
+        ⚠️ **Please don't include real journal entries, conversations, or anything personal.** Describe what happened instead.
+  - type: dropdown
+    id: install
+    attributes:
+      label: Did you get it running?
+      options:
+        - "Yes, without problems"
+        - "Yes, but setup was difficult"
+        - "No — I got stuck during setup"
+        - "I only read about it, didn't install"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and hardware
+      placeholder: "e.g. Ubuntu 24.04, RTX 3060 12 GB — or Windows 11, CPU only"
+  - type: textarea
+    id: stuck
+    attributes:
+      label: If setup was hard — where did you get stuck?
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: What did you try?
+      options:
+        - label: Journal analysis (/analyze)
+        - label: Companion with memory (/lo)
+        - label: Mental State Monitor
+        - label: Journal, habits and reports web app
+        - label: Voice
+        - label: Demo mode
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked well?
+  - type: textarea
+    id: didnt
+    attributes:
+      label: What didn't work, felt wrong, or confused you?
+  - type: dropdown
+    id: again
+    attributes:
+      label: Would you keep using it?
+      options:
+        - "Yes"
+        - "Maybe, if something changed (tell us what above)"
+        - "No"

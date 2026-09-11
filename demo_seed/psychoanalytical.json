@@ -1,0 +1,58 @@
+[
+  {
+    "id": "7674a403-c2a3-4b6a-ad26-70a609778d1d",
+    "title": "First week of the new term",
+    "date": "2026-08-29",
+    "details": "Registered for four modules. The database one looks heavy but the lecturer seems organised. Told myself I'd keep up with readings this time instead of cramming.",
+    "mood": 6.5
+  },
+  {
+    "id": "387fd7bf-3ff7-47d0-896a-2a49d666343e",
+    "title": "Lost an evening to setup",
+    "date": "2026-08-31",
+    "details": "Spent three hours configuring my editor instead of writing the assignment. Classic. The tooling felt productive but nothing actually got built.",
+    "mood": 4.0
+  },
+  {
+    "id": "b3d9c86f-db88-4533-b0c1-0d9aa16f5054",
+    "title": "Study group worked",
+    "date": "2026-09-02",
+    "details": "Met with two people from the course. Explaining recursion out loud made it click properly for the first time. Should do this weekly.",
+    "mood": 7.5
+  },
+  {
+    "id": "143bf573-5e9b-4ea3-82be-e103fcc9743c",
+    "title": "Assignment submitted late",
+    "date": "2026-09-03",
+    "details": "Two hours past the deadline. I had the whole week. Started the night before because I kept telling myself it was small. It wasn't.",
+    "mood": 3.5
+  },
+  {
+    "id": "26d2bbc4-d0fb-48ce-97c8-972fd926eda3",
+    "title": "Ran instead of scrolling",
+    "date": "2026-09-05",
+    "details": "Went out for 30 minutes when I felt the urge to open my phone. Came back and actually finished the reading. Small thing but it worked.",
+    "mood": 7.0
+  },
+  {
+    "id": "8bfde6e8-039e-40d8-9358-02ab3fda5280",
+    "title": "Quiet day, low energy",
+    "date": "2026-09-06",
+    "details": "Nothing went wrong, nothing went right. Read a chapter, made notes, slept early. Not every day needs to be a milestone.",
+    "mood": 5.0
+  },
+  {
+    "id": "f8c8cfb7-eeb1-4a31-a5e5-bc5aff78b55c",
+    "title": "Presentation went better than expected",
+    "date": "2026-09-08",
+    "details": "Practised twice out loud beforehand and it showed. Got a question I couldn't answer and said so instead of bluffing. That felt fine, actually.",
+    "mood": 8.0
+  },
+  {
+    "id": "9ce7279a-d08f-4fb1-b24e-019d55a808a3",
+    "title": "Comparing myself again",
+    "date": "2026-09-09",
+    "details": "Someone in the group has an internship lined up and I spent the evening feeling behind. Wrote down what I've actually finished this term — it's more than it felt like.",
+    "mood": 4.5
+  }
+]

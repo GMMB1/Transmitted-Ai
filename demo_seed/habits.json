@@ -1,0 +1,278 @@
+[
+  {
+    "id": "habit_demo_001",
+    "title": "Read 20 pages",
+    "color": "#2ecc71",
+    "triggerType": "build",
+    "dailyLogs": [
+      {
+        "date": "2026-09-10",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-09",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-08",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-07",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-06",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-05",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-04",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-03",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-02",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-01",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-31",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-30",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-29",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-28",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-27",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-26",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-25",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-24",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-23",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-22",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-21",
+        "status": "missed"
+      }
+    ]
+  },
+  {
+    "id": "habit_demo_002",
+    "title": "Morning walk",
+    "color": "#3498db",
+    "triggerType": "build",
+    "dailyLogs": [
+      {
+        "date": "2026-09-10",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-09",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-08",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-07",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-06",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-05",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-04",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-03",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-02",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-01",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-31",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-30",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-29",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-28",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-27",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-26",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-25",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-24",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-23",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-22",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-21",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "habit_demo_003",
+    "title": "No phone in bed",
+    "color": "#e67e22",
+    "triggerType": "quit",
+    "dailyLogs": [
+      {
+        "date": "2026-09-10",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-09",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-08",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-07",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-06",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-05",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-04",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-03",
+        "status": "success"
+      },
+      {
+        "date": "2026-09-02",
+        "status": "missed"
+      },
+      {
+        "date": "2026-09-01",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-31",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-30",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-29",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-28",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-27",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-26",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-25",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-24",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-23",
+        "status": "missed"
+      },
+      {
+        "date": "2026-08-22",
+        "status": "success"
+      },
+      {
+        "date": "2026-08-21",
+        "status": "missed"
+      }
+    ]
+  }
+]

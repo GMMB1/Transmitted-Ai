@@ -53,7 +53,12 @@ from ui_enhancements import (
     THEMES, THEME_LEGACY_REMAP_KEYS,
 )
 from config import AppConfig, AutoConfig
-from rtl_text import shape_for_tk, has_arabic
+# Arabic/RTL support removed. These shims keep the shared render paths working
+# for Latin text (identity + always-False) without the arabic-reshaper/bidi deps.
+def has_arabic(_s):
+    return False
+def shape_for_tk(s):
+    return s
 from utils import (
     ARWANOS_SOUND_ENABLED, _USERNAME_CACHE, _get_username,
     _unwrap_duckduckgo, _normalize_url, _detect_initial_zoom_delta,
@@ -852,7 +857,6 @@ async def _call_llm_with_context(
 
     q = _normalize_time_terms_safe(self, (query or "").strip())
     ctx = context or []
-    lang_ar = _is_arabic_text(q)
 
     # guard: llm availability
     llm = getattr(self, "llm", None)
@@ -887,7 +891,7 @@ async def _call_llm_with_context(
     if intrinsic_only and getattr(self, "intrinsic_persona", None):
         sys_hdr = f"{sys_hdr}\n\n[PERSONA]\n{self.intrinsic_persona}".strip()
 
-    lang_rule = "Respond in Arabic." if lang_ar else "Respond in English."
+    lang_rule = "Respond in English."
 
     def _needs_time_anchor(t: str) -> bool:
         t = (t or "").lower()
@@ -1954,8 +1958,6 @@ class CommandRouterMixin:
             "/hunt":    lambda arg: self._run_async_with_loading(self._cmd_hunt_async(arg)),
             "/save":    self._cmd_save,
             "/webui":   self._cmd_webui,
-            "/tr":      self._cmd_translate,
-            "/ap":      self._cmd_ap,
             "/dev":     lambda arg: self._run_async(self._cmd_dev_async(arg)),
             "/deep":    self._cmd_deep,
             "/vo":      self._cmd_vo,
@@ -2372,35 +2374,6 @@ class CommandRouterMixin:
         except Exception:
             pass
 
-    def _cmd_translate(self, arg: str):
-        q = (arg or "").strip()
-        if not q:
-            return "Usage: /tr <text to translate and explain>"
-
-        box = {"out": ""}
-
-        async def _run():
-            self.update_status("🌐 Translating…")
-            try:
-                box["out"] = await self._translate_and_explain(q)
-            except Exception as e:
-                box["out"] = f"Translation error: {e}"
-            self.update_status("✅ Ready")
-
-        self._run_async_with_loading(_run())
-
-        def _deliver():
-            if box["out"]:
-                self._reply_translation(box["out"])
-            else:
-                if hasattr(self, "after"):
-                    self.after(100, _deliver)
-
-        if hasattr(self, "after"):
-            self.after(120, _deliver)
-        return "Translator is working…"
-
-    # ── /vo — voice output command ─────────────────────────────────────────
     def _cmd_vo(self, arg: str) -> None:
         """
         /vo <query>             — answer then read aloud
@@ -3001,107 +2974,6 @@ class CommandRouterMixin:
         except Exception:
             pass
 
-    async def _ap_route(self, flag: str, en_query: str) -> str:
-        """Dispatch the English query to the chosen pipeline. Returns raw English string."""
-        if flag == "lo":
-            la = self._ensure_lovely()
-            return (await la.analyze_no(en_query) or "").strip()
-        elif flag == "analyze":
-            la = self._ensure_lovely()
-            return (await la.query(en_query) or "").strip()
-        elif flag == "deep":
-            self._deep_mode = True
-            try:
-                return (await self.generate_response(en_query) or "").strip()
-            finally:
-                self._deep_mode = False
-        elif flag == "hunt":
-            # Route through /hunt pipeline (vault search)
-            buf: list[str] = []
-            orig_reply = self._reply_assistant
-            def _capture(msg): buf.append(msg)
-            self._reply_assistant = _capture          # type: ignore[method-assign]
-            try:
-                await self._cmd_hunt_async(en_query)
-            finally:
-                self._reply_assistant = orig_reply    # type: ignore[method-assign]
-            return "\n".join(buf).strip() or ""
-        else:  # "rag" or default — full RAG pipeline
-            return (await self.generate_response(en_query) or "").strip()
-
-    async def _cmd_ap_async(self, arg: str) -> None:
-        """
-        Arabic Processing sandwich with optional pipeline flag:
-          /ap <query>            — normal RAG
-          /ap -lo <query>        — lovely companion
-          /ap -analyze <query>   — journal analysis (Arwanos)
-          /ap -rag <query>       — RAG search
-          /ap -deep <query>      — deep web search
-
-        Flow: AR→EN (qwen2.5:7b) → pipeline (llama3:8b) → EN→AR (qwen2.5:7b)
-        """
-        _VALID_FLAGS = {"lo", "analyze", "rag", "deep", "hunt"}
-        q = (arg or "").strip()
-        if not q:
-            self._reply_assistant(
-                "Usage:\n"
-                "  /ap <question>           — normal pipeline\n"
-                "  /ap -lo <question>       — lovely companion\n"
-                "  /ap -analyze <question>  — journal analysis\n"
-                "  /ap -rag <question>      — RAG search\n"
-                "  /ap -deep <question>     — deep web search\n"
-                "  /ap -hunt <question>     — Bug Bounty vault search"
-            )
-            return
-
-        # ── Parse flag ────────────────────────────────────────────────────
-        flag = "default"
-        parts = q.split(None, 1)
-        if parts[0].startswith("-") and parts[0][1:] in _VALID_FLAGS:
-            flag = parts[0][1:]
-            q = parts[1].strip() if len(parts) > 1 else ""
-            if not q:
-                self._reply_assistant(f"Usage: /ap -{flag} <question>")
-                return
-
-        _t0 = time.perf_counter()
-        print(f"[AP] flag={flag}  input={q!r}", flush=True)
-
-        # ── Step 1: translate query → English (if Arabic) ─────────────────
-        if _is_arabic_text(q):
-            self.update_status("🌐 Translating question…")
-            en_query = await _ap_translate(q, to_english=True)
-            print(f"[AP +{time.perf_counter()-_t0:.2f}s] EN query: {en_query!r}", flush=True)
-        else:
-            en_query = q
-            print(f"[AP] EN input — no translation needed", flush=True)
-
-        # ── Step 2: run through chosen pipeline ───────────────────────────
-        status_map = {
-            "lo": "💗 Lovely thinking…", "analyze": "🧠 Arwanos analysing…",
-            "deep": "🔎 Deep searching…",  "rag": "📚 RAG searching…",
-        }
-        self.update_status(status_map.get(flag, "🧠 Arwanos thinking…"))
-        en_response = await self._ap_route(flag, en_query)
-        print(f"[AP +{time.perf_counter()-_t0:.2f}s] EN response: {len(en_response)} chars", flush=True)
-
-        # ── Step 3: translate response → Arabic ───────────────────────────
-        self.update_status("🌐 Translating answer…")
-        ar_response = await _ap_translate(en_response, to_english=False)
-        print(f"[AP +{time.perf_counter()-_t0:.2f}s] AR: {len(ar_response)} chars  "
-              f"total={time.perf_counter()-_t0:.2f}s", flush=True)
-
-        self.update_status("✅ Ready")
-        self.after(0, lambda r=ar_response: self._reply_assistant(r))
-
-    def _cmd_ap(self, arg: str) -> str:
-        """Sync entry point for /ap — fires the translation sandwich on the background loop."""
-        if not (arg or "").strip():
-            return "Usage: /ap [-lo|-analyze|-rag|-deep|-hunt] <question>"
-        self._run_async_with_loading(self._cmd_ap_async(arg))
-        return ""
-
-
 class DummyLLM:
     """Very small fallback so the UI always responds if Ollama/LC is missing."""
 
@@ -3294,147 +3166,6 @@ class SimpleOllama:
         return "".join(parts).strip()
 
 
-async def _google_translate_chunk(chunk: str, src: str, tgt: str) -> str:
-    """Single Google Translate API call for one chunk (≤4000 chars)."""
-    import urllib.parse as _up, subprocess as _sp, json as _js, asyncio as _aio
-    enc = _up.quote(chunk)
-    def _curl():
-        r = _sp.run(
-            ["curl", "-s", "--max-time", "8",
-             f"https://translate.googleapis.com/translate_a/single"
-             f"?client=gtx&sl={src}&tl={tgt}&dt=t&q={enc}"],
-            capture_output=True, text=True, timeout=10,
-        )
-        return r.stdout
-    try:
-        raw = await _aio.get_running_loop().run_in_executor(None, _curl)
-        data = _js.loads(raw)
-        return "".join(s[0] for s in data[0] if s and s[0])
-    except Exception:
-        return ""
-
-
-async def _ap_translate(text: str, to_english: bool) -> str:
-    """
-    AR↔EN translation for the /ap sandwich.
-    Primary: Google Translate API — fast, accurate, no CJK/Cyrillic contamination.
-    Fallback: qwen2.5:7b (offline) with post-processing cleanup.
-    Long texts are split at paragraph boundaries so each chunk stays under 4000 chars.
-    """
-    import asyncio as _aio, re as _re2
-    text = (text or "").strip()
-    if not text:
-        return text
-    src = "ar" if to_english else "en"
-    tgt = "en" if to_english else "ar"
-    _MAX = 4000
-
-    # ── split into chunks at paragraph breaks ────────────────────────────
-    paras = [p for p in text.split("\n\n") if p.strip()]
-    chunks: list[str] = []
-    current = ""
-    for para in paras:
-        if len(current) + len(para) + 2 <= _MAX:
-            current = (current + "\n\n" + para).strip() if current else para
-        else:
-            if current:
-                chunks.append(current)
-            # paragraph itself may be over limit — split by sentence
-            if len(para) > _MAX:
-                sents = _re2.split(r"(?<=[.!?؟])\s+", para)
-                buf = ""
-                for s in sents:
-                    if len(buf) + len(s) + 1 <= _MAX:
-                        buf = (buf + " " + s).strip() if buf else s
-                    else:
-                        if buf:
-                            chunks.append(buf)
-                        buf = s
-                if buf:
-                    chunks.append(buf)
-                current = ""
-            else:
-                current = para
-    if current:
-        chunks.append(current)
-
-    # ── translate each chunk via Google API ──────────────────────────────
-    parts: list[str] = []
-    google_ok = True
-    for chunk in chunks:
-        t = await _google_translate_chunk(chunk, src, tgt)
-        if t:
-            parts.append(t)
-        else:
-            google_ok = False
-            break
-
-    if google_ok and parts:
-        result = "\n\n".join(parts).strip()
-        # Collapse extra blank lines that may appear after joining
-        result = _re2.sub(r"\n{3,}", "\n\n", result).strip()
-        return result
-
-    # ── fallback: qwen2.5:7b ─────────────────────────────────────────────
-    print("[AP:translate] Google API failed — falling back to qwen2.5:7b", flush=True)
-    return await _ar_translate_ollama(text, to_english)
-
-
-async def _ar_translate_ollama(text: str, to_english: bool) -> str:
-    """
-    Offline fallback: AR↔EN via qwen2.5:7b.
-    Called only when Google Translate API is unreachable.
-    """
-    import asyncio as _aio, re as _re2
-    src = "Arabic" if to_english else "English"
-    tgt = "English" if to_english else "Arabic"
-    ar_only_note = (
-        "Translate the ENTIRE text fully into Arabic — every sentence, every "
-        "expression, every paragraph. Do not summarise or shorten. Do not leave "
-        "any English, Chinese, Russian, or other non-Arabic words in the output. "
-        "Translate English interjections and phrases into their natural Arabic equivalents."
-    ) if not to_english else ""
-    prompt = (
-        f"Translate the following {src} text to {tgt}.\n"
-        f"Output ONLY the translated text — no explanations, no labels, "
-        f"no original text, no commentary, no repetition. {ar_only_note}\n\n"
-        f"{text}\n\nTranslation:"
-    )
-    _predict = 1200 if to_english else 2800
-    _ctx     = 2048 if to_english else 6144
-    try:
-        llm = SimpleOllama(
-            model="qwen2.5:7b", temperature=0.05,
-            options={"num_predict": _predict, "num_ctx": _ctx},
-        )
-        loop = _aio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: llm.invoke(prompt))
-        translated = (result.content or "").strip()
-        if translated.lower().startswith("translation:"):
-            translated = translated[len("translation:"):].strip()
-        if not to_english:
-            translated = _re2.sub(
-                r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u31f0-\u31ff\u3400-\u4dbf]+',
-                '', translated)
-            translated = _re2.sub(r'[\u0400-\u04ff]+', '', translated)
-            def _mostly_latin(ln):
-                letters = [c for c in ln if c.isalpha()]
-                return bool(letters) and (sum(1 for c in letters if ord(c) < 0x0300) / len(letters)) > 0.6
-            lines = [ln for ln in translated.split('\n') if not _mostly_latin(ln)]
-            seen, deduped = set(), []
-            for ln in lines:
-                k = ln.strip()
-                if k not in seen:
-                    seen.add(k); deduped.append(ln)
-            translated = _re2.sub(r' {2,}', ' ', '\n'.join(deduped))
-            translated = _re2.sub(r'\n{3,}', '\n\n', translated).strip()
-        return translated if translated else text
-    except Exception as e:
-        print(f"[AP:translate] qwen2.5:7b error: {e}", flush=True)
-        return text
-
-
-# ---------- PATH HELPERS ----------
 def _find_repo_paths() -> dict:
     """
     Robust relative paths without hardcoding. Adjust if your tree differs.
@@ -8031,13 +7762,11 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             try:
                 self.chat_history.tag_config(
                     "rtl",
-                    font=("Noto Naskh Arabic", 13),
                     justify="right",
                 )
                 # Also configure on the underlying tk.Text in case CTk wraps it
                 self.chat_history._textbox.tag_configure(
                     "rtl",
-                    font=("Noto Naskh Arabic", 13),
                     justify="right",
                 )
             except Exception:
@@ -8457,114 +8186,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
 
-    def _reply_translation(self, text: str) -> None:
-        """
-        Render /tr output line-by-line with guaranteed RTL reshaping.
-        Uses two strategies (in priority order):
-        1. Label-based: lines whose label ends in -AR are always RTL.
-        2. Character-based fallback: ≥5% Arabic chars → RTL.
-        """
-        from rtl_text import shape_for_tk as _stk
-        import re as _re_tr
-
-        ch  = getattr(self, "chat_history", None)
-        if not ch:
-            self._insert_assistant_line(text)
-            return
-
-        raw = getattr(ch, "_textbox", ch)
-
-        # Labels that always carry Arabic content (from the new template)
-        _AR_LABELS = {
-            "Meaning-AR", "Example-AR-1", "Example-AR-2",
-            "Proverb-AR",
-            # legacy labels from old template, kept for backward compat
-            "Arabic meaning", "Arabic Meaning",
-        }
-        # Labels that are always LTR
-        _EN_LABELS = {
-            "Translation", "Meaning-EN", "Example-EN-1", "Example-EN-2",
-            "Proverb-EN", "English meaning", "English Meaning",
-            "Examples", "Phonetics",
-        }
-
-        def _char_has_arabic(line: str) -> bool:
-            ar = sum(1 for c in line if not c.isspace()
-                     and (0x0600 <= ord(c) <= 0x06FF
-                          or 0x0750 <= ord(c) <= 0x077F
-                          or 0xFB50 <= ord(c) <= 0xFDFF
-                          or 0xFE70 <= ord(c) <= 0xFEFF))
-            total = sum(1 for c in line if not c.isspace())
-            return total > 0 and (ar / total) >= 0.05
-
-        def _insert(widget, txt, tags):
-            try:
-                widget.insert("end", txt, tags)
-            except Exception:
-                try: ch.insert("end", txt, tags)
-                except Exception: pass
-
-        # Header
-        _insert(raw, "Arwanos:\n", ("assistant",))
-        try: ch.see("end")
-        except Exception: pass
-
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                _insert(raw, "\n", ("assistant",))
-                continue
-
-            # ── parse label: "LabelName: content" ───────────────────────
-            m = _re_tr.match(r"^([\w\s\-]+):\s*(.*)", stripped)
-            label_name = m.group(1).strip() if m else ""
-            content    = m.group(2).strip() if m else stripped
-
-            if label_name in _AR_LABELS:
-                # Label in LTR, Arabic content in RTL
-                label_txt = f"{label_name}: "
-                _insert(raw, label_txt, ("assistant",))
-                shaped = _stk(content) if content else ""
-                _insert(raw, shaped + "\n", ("assistant", "rtl"))
-
-            elif label_name in _EN_LABELS:
-                # Entire line is LTR — but still reshape if Arabic leaks in
-                if _char_has_arabic(content):
-                    _insert(raw, f"{label_name}: ", ("assistant",))
-                    _insert(raw, _stk(content) + "\n", ("assistant", "rtl"))
-                else:
-                    _insert(raw, stripped + "\n", ("assistant",))
-
-            else:
-                # Unknown label or unlabelled line — fall back to char detection
-                if _char_has_arabic(stripped):
-                    shaped = _stk(stripped)
-                    _insert(raw, shaped + "\n", ("assistant", "rtl"))
-                else:
-                    _insert(raw, stripped + "\n", ("assistant",))
-
-        _insert(raw, "\n", ("assistant",))
-        try: ch.see("end")
-        except Exception: pass
-        try: self._insert_separator_line()
-        except Exception: pass
-
-        # /vo mode: speak the English-readable part of the translation result
-        if getattr(self, "_vo_pending", False) and len((text or "").strip()) > 10:
-            self._vo_pending = False
-            # Build a speakable version: EN lines only (Translation + Meaning-EN + Examples-EN)
-            import re as _re_vo_tr
-            speakable_lines = []
-            for _ln in text.splitlines():
-                _lbl_m = _re_vo_tr.match(r"^([\w\s\-]+):\s*(.*)", _ln.strip())
-                if _lbl_m:
-                    _lbl = _lbl_m.group(1).strip()
-                    if any(_lbl.startswith(p) for p in ("Translation", "Meaning-EN", "Example-EN", "Proverb-EN")):
-                        speakable_lines.append(_lbl_m.group(2).strip())
-            speakable = " ".join(speakable_lines) or text
-            self.after(0, lambda t=speakable: self._speak_response(t))
-
-    # --- chat area helpers (context menu + highlighting) ---
     def _setup_chat_context_menu(self):
         if getattr(self, "_chat_context_menu", None) or not getattr(
             self, "chat_history", None
@@ -8590,10 +8211,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 label="\U0001f4cc Bookmark this", command=self._bookmark_from_selection
             )
             self._chat_ctx_idx_bookmark = menu.index("end")
-            menu.add_separator()
-            menu.add_command(
-                label="\U0001f310 Translate to Arabic", command=self._translate_chat_selection
-            )
             self.chat_history.bind("<Button-3>", self._show_chat_context_menu)
             # Control+click alternative for some trackpads
             self.chat_history.bind("<Control-Button-1>", self._show_chat_context_menu)
@@ -8801,19 +8418,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
                 self._show_comments_list()
         except Exception:
             pass
-
-    def _translate_chat_selection(self):
-        if not getattr(self, "chat_history", None):
-            return
-        try:
-            text = self.chat_history.get("sel.first", "sel.last").strip()
-        except Exception:
-            text = ""
-        if not text:
-            return
-        import subprocess, shlex
-        # Pass text directly as $1 — avoids Tk vs Wayland clipboard mismatch
-        subprocess.Popen(["bash", "/home/gmm/Tools/translate.sh", text])
 
     def _show_search_nav_box(self, total_count: int):
         # Create frame if missing
@@ -9603,6 +9207,50 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
 
+    @staticmethod
+    def _seed_demo_data(seed_dir: Path, data_dir: Path) -> None:
+        """Fill an empty demo folder from the fictional dataset shipped in demo_seed/.
+
+        data_test/ stays gitignored on purpose: the app writes to it, so anything
+        typed while in Demo mode would otherwise land in a tracked file and be one
+        `git add -A` away from being published. demo_seed/ is tracked and never
+        written by the app — it's copied, never edited in place.
+
+        Dates are shifted so the newest entry is yesterday; a demo whose journal
+        stops months ago shows empty streaks and "last entry 200 days ago".
+        Existing, non-empty demo files are never overwritten.
+        """
+        import datetime as _dt
+        if not seed_dir.is_dir():
+            return
+        for name in ("psychoanalytical.json", "habits.json"):
+            src, dst = seed_dir / name, data_dir / name
+            try:
+                if dst.exists():
+                    cur = json.loads(dst.read_text(encoding="utf-8") or "[]")
+                    if cur:
+                        continue                      # user's demo data — leave it
+                if not src.exists():
+                    continue
+                rows = json.loads(src.read_text(encoding="utf-8"))
+
+                def _dates(r):
+                    if r.get("date"):
+                        yield r, "date"
+                    for log in r.get("dailyLogs") or []:
+                        if log.get("date"):
+                            yield log, "date"
+
+                found = [(o, k) for r in rows for (o, k) in _dates(r)]
+                if found:
+                    newest = max(_dt.date.fromisoformat(o[k][:10]) for o, k in found)
+                    shift = (_dt.date.today() - _dt.timedelta(days=1)) - newest
+                    for o, k in found:
+                        o[k] = (_dt.date.fromisoformat(o[k][:10]) + shift).isoformat()
+                dst.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass                                   # a demo seed must never block startup
+
     def _switch_demo_mode(self, demo: bool) -> None:
         """
         Hot-swap the active data folder between data/ (personal) and data_test/ (demo).
@@ -9615,6 +9263,8 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         root = Path(__file__).resolve().parent
         data_dir = root / ("data_test" if demo else "data")
         data_dir.mkdir(parents=True, exist_ok=True)
+        if demo:
+            self._seed_demo_data(root / "demo_seed", data_dir)
 
         # 1. Update app-level paths
         if not hasattr(self, "paths") or not isinstance(self.paths, dict):
@@ -10032,7 +9682,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         if not hasattr(self, "chat_history") or not self.chat_history:
             return
         
-        from rtl_text import shape_for_tk, has_arabic
         
         s = text or ""
         try:
@@ -10169,7 +9818,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             return
 
         try:
-            from rtl_text import shape_for_tk, has_arabic
             shaped = shape_for_tk(text)
             is_rtl = has_arabic(text)
         except Exception:
@@ -12693,8 +12341,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             menu = tk.Menu(self.user_input, tearoff=0)
             menu.add_command(label="Copy", command=self._copy_input_selection)
             menu.add_command(label="Paste", command=self._paste_into_input)
-            menu.add_separator()
-            menu.add_command(label="Translate to Arabic", command=self._translate_selection)
             self.user_input.bind("<Button-3>", self._show_input_context_menu)
             self.user_input.bind(
                 "<Control-Button-1>", self._show_input_context_menu
@@ -12748,46 +12394,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             self.user_input.insert("insert", text)
         except Exception:
             pass
-
-    def _translate_selection(self):
-        if not getattr(self, "user_input", None):
-            return
-        try:
-            text = self.user_input.selection_get()
-        except Exception:
-            text = self.user_input.get().strip()
-        if not text:
-            return
-        import subprocess, shlex
-        safe = shlex.quote(text)
-        tts_cmd = (
-            f'if command -v edge-tts &>/dev/null; then '
-            f'  TMP=$(mktemp /tmp/tts_XXXXXX.mp3); '
-            f'  edge-tts --voice en-US-JennyNeural --rate="-5%" --text {safe} --write-media "$TMP" 2>/dev/null '
-            f'    && ffplay -nodisp -autoexit -loglevel quiet "$TMP" 2>/dev/null; '
-            f'  rm -f "$TMP"; '
-            f'else '
-            f'  espeak-ng -v en+f3 -p 55 -s 130 {safe}; '
-            f'fi'
-        )
-        encoded_cmd = (
-            f'ENCODED=$(python3 -c "import urllib.parse,sys; '
-            f'print(urllib.parse.quote(sys.argv[1]))" {safe} 2>/dev/null); '
-            f'RESULT=$(curl -s --max-time 8 '
-            f'"https://translate.googleapis.com/translate_a/single'
-            f'?client=gtx&sl=en&tl=ar&dt=t&q=${{ENCODED}}" '
-            f'| python3 -c "import sys,json; d=json.load(sys.stdin); '
-            f'print(\'\'.join(s[0] for s in d[0] if s[0]))" 2>/dev/null); '
-            f'[ -z "$RESULT" ] && RESULT="(Translation unavailable)"; '
-        )
-        subprocess.Popen([
-            "bash", "-c",
-            f'export PATH="$HOME/.local/bin:$PATH"; '
-            + encoded_cmd
-            + f'zenity --question --title="Translation" --text="$RESULT" '
-            f'--ok-label="🔊 Listen" --cancel-label="Close" --timeout=15 && '
-            + tts_cmd
-        ])
 
     def start_web_ui(self, host="127.0.0.1", port=5005):
         def _run():
@@ -14125,9 +13731,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         "💗 Lovely thinking",
         "Lovely accepted your question",
         "Dashboard trigger detected",
-        "Translator is working",
-        "Translation error",
-        "Usage: /tr",
     )
 
     def _push_hist(self, role: str, content: str) -> None:
@@ -14498,103 +14101,6 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
 
     def route_user_input(self, raw: str) -> None:
         return globals()["route_user_input"](self, raw)
-
-    async def _translate_and_explain(self, text: str) -> str:
-        """
-        Two-stage translation:
-        1) Verified translation via Google Translate API (no hallucination).
-        2) LLM enrichment for context, Arabic examples, and proverbs.
-        Output uses fixed line-label prefixes so _reply_translation can
-        reliably identify which lines need RTL reshaping.
-        """
-        import urllib.parse as _up, subprocess as _sp, json as _json
-        q = (text or "").strip()
-        if not q:
-            return "Usage: /tr <text to translate and explain>"
-
-        # ── detect direction ──────────────────────────────────────────────
-        non_sp = [c for c in q if not c.isspace()]
-        ar_cnt = sum(1 for c in non_sp if 0x0600 <= ord(c) <= 0x06FF
-                     or 0x0750 <= ord(c) <= 0x077F
-                     or 0xFB50 <= ord(c) <= 0xFDFF)
-        is_arabic_input = len(non_sp) > 0 and (ar_cnt / len(non_sp)) > 0.3
-        src, tgt = ("ar", "en") if is_arabic_input else ("en", "ar")
-        direction = "Arabic → English" if is_arabic_input else "English → Arabic"
-
-        # ── step 1: verified translation (Google API) ─────────────────────
-        verified = ""
-        try:
-            enc = _up.quote(q)
-            r = _sp.run(
-                ["curl", "-s", "--max-time", "6",
-                 f"https://translate.googleapis.com/translate_a/single"
-                 f"?client=gtx&sl={src}&tl={tgt}&dt=t&q={enc}"],
-                capture_output=True, text=True, timeout=8,
-            )
-            data = _json.loads(r.stdout)
-            verified = "".join(s[0] for s in data[0] if s and s[0])
-        except Exception:
-            verified = ""
-
-        # ── step 2: LLM enrichment (examples + proverbs only) ────────────
-        system = (
-            "You are Arwanos Translator — precise, no hallucination.\n"
-            "RULES:\n"
-            "1. Use the VERIFIED TRANSLATION exactly as given — do not alter it.\n"
-            "2. All Arabic text must be proper Arabic script — no Latin transliteration anywhere.\n"
-            "3. Write natural, fluent Arabic — Modern Standard Arabic (فصحى) for formal words, "
-            "common spoken Arabic for everyday words.\n"
-            "4. Proverb-AR must contain ONLY the Arabic proverb text itself — no parentheses, "
-            "no romanisation, no English explanation on that line.\n"
-            "5. Proverb-EN must contain ONLY the English translation/meaning of the proverb.\n"
-            "6. Do NOT add disclaimers, caveats, or extra sections.\n"
-            "7. Follow the output template EXACTLY — same label names, same order."
-        )
-
-        layout = (
-            f"\n\nInput ({direction}): {q}\n"
-            f"Verified translation: {verified or '(derive from the word itself)'}\n"
-            "\nOutput template — fill every field, keep label names verbatim:\n"
-            "Translation: <verified translation, unchanged>\n"
-            "Meaning-EN: <1-sentence English definition>\n"
-            "Meaning-AR: <1-sentence definition fully in Arabic script>\n"
-            "Example-EN-1: <English sentence using the word naturally>\n"
-            "Example-EN-2: <second English sentence, different context/sense>\n"
-            "Example-AR-1: <Arabic sentence using the equivalent — full Arabic script>\n"
-            "Example-AR-2: <second Arabic sentence — full Arabic script>\n"
-            "Proverb-AR: <Arabic proverb or idiom — Arabic script only, no romanisation — or N/A>\n"
-            "Proverb-EN: <English translation of the proverb — or N/A>\n"
-        )
-
-        try:
-            out = await self._call_llm_with_context(
-                q, [], context=[], intrinsic_only=True,
-                system_override=system + layout,
-            )
-            result = (out or "").strip()
-            # If the LLM ignored the template and gave a bare answer, wrap it
-            if verified and "Translation:" not in result:
-                result = f"Translation: {verified}\n{result}"
-            # Post-process: remove only parenthesised Latin transliteration
-            # from the Proverb-AR line (the most common LLM slip).
-            import re as _re_post
-            def _clean_proverb_ar(m):
-                label, content = m.group(1), m.group(2)
-                content = _re_post.sub(r"\([^)]*[a-zA-Z][^)]*\)", "", content)
-                content = _re_post.sub(r",\s*meaning\s+['\"].+?['\"]", "", content, flags=_re_post.I)
-                content = _re_post.sub(r"\s{2,}", " ", content).strip()
-                return label + content
-            result = _re_post.sub(
-                r"^(Proverb-AR:\s*)(.*)",
-                _clean_proverb_ar,
-                result,
-                flags=_re_post.M,
-            )
-            return result
-        except Exception as e:
-            if verified:
-                return f"Translation: {verified}\n(Enrichment error: {e})"
-            return f"Translation error: {e}"
 
     async def handle_query(self, raw_text: str) -> str:
         """
@@ -15253,12 +14759,7 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
             "- `/analyze set <instructions>` — save custom response format\n"
             "- `/save` — save session + update 30-day cache\n"
             "- `/webui [start|stop]` — local web server\n"
-            "- `/tr <text>` — translate + explain\n"
-            "- `/ap <query>` — Arabic processing (translate sandwich)\n"
-            "- `/ap -lo <query>` — Arabic + lovely companion\n"
-            "- `/ap -analyze <query>` — Arabic + journal analysis\n"
-            "- `/ap -rag <query>` — Arabic + RAG search\n"
-            "- `/ap -deep <query>` — Arabic + deep web search\n"
+
             "- `/dev [cmd]` — source inspector & analyser\n"
             "- `/vo <query>` — answer then read aloud (Jenny Neural voice)\n"
             "- `/vo /deep <query>` — deep search then read aloud\n"
