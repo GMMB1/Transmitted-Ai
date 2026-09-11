@@ -49,7 +49,7 @@ Arwanos doesn't just chat. **It reads between the lines.**
 <p align="center">
   <img src="demo/journal.png" width="49%" alt="Journal web app with the day's entries"/>
   <img src="demo/analyze.png" width="49%" alt="Pattern analysis of the journal"/>
-  <img src="demo/reports.png" width="49%" alt="Weekly reflection with daily entries alongside"/>
+  <img src="demo/weekly-reports.png" width="49%" alt="Saved weekly reflections"/>
   <img src="demo/monitor.png" width="49%" alt="Mental State Monitor check-in"/>
 </p>
 
