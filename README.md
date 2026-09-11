@@ -46,17 +46,14 @@ Arwanos doesn't just chat. **It reads between the lines.**
 | 🎤 **Voice** | Dictation and hands-free call mode, routed to the mode you choose, with noise-floor auto-calibration. *(Linux)* |
 | 🔍 **Adaptive search** — `/deep` | Scores each question before answering, and only reaches for live web search when a question actually needs it. |
 
-<!--
-  SCREENSHOTS — take these in Demo mode (Settings → Data Folder → Demo) so no personal
-  data is in frame, save them to demo/, then remove this comment wrapper.
-
 <p align="center">
-  <img src="demo/analyze.png"   width="49%" alt="Journal analysis"/>
-  <img src="demo/companion.png" width="49%" alt="Companion with memory"/>
-  <img src="demo/journal.png"   width="49%" alt="Journal web app"/>
-  <img src="demo/monitor.png"   width="49%" alt="Mental State Monitor"/>
+  <img src="demo/journal.png" width="49%" alt="Journal web app with the day's entries"/>
+  <img src="demo/analyze.png" width="49%" alt="Pattern analysis of the journal"/>
+  <img src="demo/reports.png" width="49%" alt="Weekly reflection with daily entries alongside"/>
+  <img src="demo/monitor.png" width="49%" alt="Mental State Monitor check-in"/>
 </p>
--->
+
+<p align="center"><sub>Screenshots taken in Demo mode — the data shown is a fictional sample, not a real journal.</sub></p>
 
 ---
 
