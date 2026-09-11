@@ -164,19 +164,19 @@ def apply_chat_styling(app: Any, zoom_delta: int = 0) -> None:
 
     # ── fonts ──────────────────────────────────────────────────────────────
     try:
-        app.ui_font = ctk.CTkFont(family="Noto Naskh Arabic", size=_base, weight="normal")
+        app.ui_font = ctk.CTkFont(family="Segoe UI", size=_base, weight="normal")
         app.ui_font_assistant = ctk.CTkFont(
-            family="Noto Naskh Arabic", size=_asst, weight="normal"
+            family="Segoe UI", size=_asst, weight="normal"
         )
         app.ui_font_user = ctk.CTkFont(
-            family="Noto Naskh Arabic", size=_user, weight="medium"
+            family="Segoe UI", size=_user, weight="medium"
         )
     except Exception:
         try:
             import tkinter.font as tkfont
-            app.ui_font           = tkfont.Font(family="Noto Naskh Arabic", size=_base)
-            app.ui_font_assistant = tkfont.Font(family="Noto Naskh Arabic", size=_asst)
-            app.ui_font_user      = tkfont.Font(family="Noto Naskh Arabic", size=_user, weight="bold")
+            app.ui_font           = tkfont.Font(family="Segoe UI", size=_base)
+            app.ui_font_assistant = tkfont.Font(family="Segoe UI", size=_asst)
+            app.ui_font_user      = tkfont.Font(family="Segoe UI", size=_user, weight="bold")
         except Exception:
             app.ui_font = app.ui_font_assistant = app.ui_font_user = None
 

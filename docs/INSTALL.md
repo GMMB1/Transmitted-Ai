@@ -53,7 +53,6 @@ ollama serve      # start manually if not already running
 sudo apt install python3-tk
 sudo apt install pulseaudio-utils    # audio fallback (paplay)
 sudo apt install alsa-utils           # alternative audio (aplay)
-sudo apt install libfribidi0          # Arabic/RTL shaping
 sudo apt install default-jre          # only if using language_tool_python
 ```
 

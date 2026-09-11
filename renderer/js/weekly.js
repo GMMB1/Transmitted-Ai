@@ -450,7 +450,7 @@ const Weekly = {
                     <h2 style="color: var(--secondary-color); margin: 0;">${report.title || 'Weekly Report'}</h2>
                     <span>${emojis[idx]} ${report.rating}/10</span>
                 </div>
-                <div style="white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; text-align: center; direction: rtl; font-size: 1.2rem; line-height: 1.8;">
+                <div style="white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; text-align: center; font-size: 1.2rem; line-height: 1.8;">
                     ${report.details || 'No details.'}
                 </div>
                 

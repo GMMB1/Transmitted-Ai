@@ -14,10 +14,6 @@ aiohttp>=3.9.0
 ollama>=0.1.6
 langchain-ollama>=0.1.0
 
-# ── Arabic / RTL rendering ────────────────────────────────────────────────────
-arabic-reshaper>=3.0.0
-python-bidi>=0.4.2
-
 # ── System / utilities ────────────────────────────────────────────────────────
 psutil>=5.9.0
 packaging>=23.0

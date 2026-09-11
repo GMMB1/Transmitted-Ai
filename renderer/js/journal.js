@@ -375,7 +375,7 @@ const Journal = {
                     <h2 style="color: var(--secondary-color); font-size: 2rem; flex: 1; margin: 0 20px;">${journal.title}</h2>
                     <span style="font-size: 2rem;">${emoji} ${journal.dailyRating}/10</span>
                 </div>
-                <div style="white-space: pre-wrap; text-align: center; direction: rtl; font-size: 1.2rem; line-height: 1.8;">
+                <div style="white-space: pre-wrap; text-align: center; font-size: 1.2rem; line-height: 1.8;">
                     ${journal.details}
                 </div>
                 <button class="secondary-btn" style="margin-top: 25px;">Close</button>
