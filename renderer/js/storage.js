@@ -16,11 +16,33 @@ const Storage = {
         lastSuggestedDates: [] // Track last 10 suggested dates
     },
 
+    // Demo mode swaps the SERVER data folder, but weekly/monthly reports, notes
+    // and templates live in localStorage, which the server cannot switch. Without
+    // namespacing the key, real personal reports render while the UI claims to be
+    // in demo mode — which is exactly when screenshots get taken for publication.
+    _mode: 'personal',
+
+    _storageKey() {
+        return this._mode === 'demo'
+            ? 'daily_productivity_full_data__demo'
+            : 'daily_productivity_full_data';
+    },
+
+    async _loadMode() {
+        try {
+            const r = await fetch('/api/data-mode');
+            if (r.ok) this._mode = (await r.json()).mode || 'personal';
+        } catch (e) {
+            this._mode = 'personal';   // server unreachable — never guess "demo"
+        }
+    },
+
     /**
      * Initialize storage - load data from disk or localStorage
      */
     async init() {
         try {
+            await this._loadMode();
             // Try to load journals from Flask API first
             const apiJournals = await this.fetchJournalsFromAPI();
             if (apiJournals && apiJournals.length >= 0) {
@@ -33,7 +55,7 @@ const Storage = {
             }
 
             // Load other data from localStorage (habits excluded — API-only)
-            const localData = localStorage.getItem('daily_productivity_full_data');
+            const localData = localStorage.getItem(this._storageKey());
             if (localData) {
                 const data = JSON.parse(localData);
                 // Don't overwrite journals from API
@@ -198,7 +220,7 @@ const Storage = {
                 }
             } else {
                 // Web/Mobile Mode
-                localStorage.setItem('daily_productivity_full_data', JSON.stringify(data));
+                localStorage.setItem(this._storageKey(), JSON.stringify(data));
                 console.log('Saved to localStorage (Web Mode)');
             }
         } catch (error) {
@@ -283,7 +305,7 @@ const Storage = {
                 habits: this.habits,
                 settings: this.settings
             };
-            localStorage.setItem('daily_productivity_full_data', JSON.stringify(data));
+            localStorage.setItem(this._storageKey(), JSON.stringify(data));
         } catch (error) {
             console.error('Error saving local data:', error);
         }
@@ -610,6 +632,29 @@ window.Storage = Storage;
             if (version !== _lastVersion) {
                 _lastVersion = version;
 
+                // Re-point localStorage at the new mode's key and reload what it
+                // backs. Without this the habits board switches but the weekly and
+                // monthly reports on screen still belong to the previous mode —
+                // the personal ones stay visible while the UI says "Demo".
+                await Storage._loadMode();
+                try {
+                    const raw = localStorage.getItem(Storage._storageKey());
+                    const d = raw ? JSON.parse(raw) : {};
+                    Storage.weeklyReports  = d.weeklyReports  || [];
+                    Storage.monthlyReports = d.monthlyReports || [];
+                    Storage.templates      = d.templates      || [];
+                    Storage.quickNotes     = d.quickNotes     || '';
+                    Storage.favorites      = d.favorites      || [];
+                } catch (_) {
+                    Storage.weeklyReports = Storage.monthlyReports = [];
+                }
+                try {
+                    const j = await Storage.fetchJournalsFromAPI();
+                    if (Array.isArray(j)) {
+                        Storage.journals = j.map(x => ({ ...x, dailyRating: x.mood || 5 }));
+                    }
+                } catch (_) { /* keep what we have */ }
+
                 // Re-fetch habits from the newly active data folder.
                 // 200 = use file (demo or personal habits.json).
                 // 204 = no habits.json → fall back to localStorage so personal
@@ -620,7 +665,7 @@ window.Storage = Storage;
                     if (Array.isArray(data)) Storage.habits = data;
                 } else if (habitsResp.status === 204) {
                     try {
-                        const local = localStorage.getItem('daily_productivity_full_data');
+                        const local = localStorage.getItem(Storage._storageKey());
                         Storage.habits = (local ? JSON.parse(local).habits : null) || [];
                     } catch (_) { Storage.habits = []; }
                 }

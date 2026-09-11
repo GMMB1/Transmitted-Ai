@@ -11,7 +11,11 @@
     // ── Apply saved theme / neon / pattern ─────────────────────────────────
     (function applyTheme() {
         try {
-            const raw = localStorage.getItem('daily_productivity_full_data');
+            // Theme only — no personal content is read here, so falling back to
+            // the personal store keeps the UI styled in demo mode instead of
+            // reverting to the default theme mid-screenshot.
+            const raw = localStorage.getItem('daily_productivity_full_data__demo')
+                     || localStorage.getItem('daily_productivity_full_data');
             if (!raw) return;
             const data = JSON.parse(raw);
             const theme   = data?.settings?.theme   || 'default';

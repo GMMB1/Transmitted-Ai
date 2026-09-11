@@ -9603,6 +9603,50 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         except Exception:
             pass
 
+    @staticmethod
+    def _seed_demo_data(seed_dir: Path, data_dir: Path) -> None:
+        """Fill an empty demo folder from the fictional dataset shipped in demo_seed/.
+
+        data_test/ stays gitignored on purpose: the app writes to it, so anything
+        typed while in Demo mode would otherwise land in a tracked file and be one
+        `git add -A` away from being published. demo_seed/ is tracked and never
+        written by the app — it's copied, never edited in place.
+
+        Dates are shifted so the newest entry is yesterday; a demo whose journal
+        stops months ago shows empty streaks and "last entry 200 days ago".
+        Existing, non-empty demo files are never overwritten.
+        """
+        import datetime as _dt
+        if not seed_dir.is_dir():
+            return
+        for name in ("psychoanalytical.json", "habits.json"):
+            src, dst = seed_dir / name, data_dir / name
+            try:
+                if dst.exists():
+                    cur = json.loads(dst.read_text(encoding="utf-8") or "[]")
+                    if cur:
+                        continue                      # user's demo data — leave it
+                if not src.exists():
+                    continue
+                rows = json.loads(src.read_text(encoding="utf-8"))
+
+                def _dates(r):
+                    if r.get("date"):
+                        yield r, "date"
+                    for log in r.get("dailyLogs") or []:
+                        if log.get("date"):
+                            yield log, "date"
+
+                found = [(o, k) for r in rows for (o, k) in _dates(r)]
+                if found:
+                    newest = max(_dt.date.fromisoformat(o[k][:10]) for o, k in found)
+                    shift = (_dt.date.today() - _dt.timedelta(days=1)) - newest
+                    for o, k in found:
+                        o[k] = (_dt.date.fromisoformat(o[k][:10]) + shift).isoformat()
+                dst.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass                                   # a demo seed must never block startup
+
     def _switch_demo_mode(self, demo: bool) -> None:
         """
         Hot-swap the active data folder between data/ (personal) and data_test/ (demo).
@@ -9615,6 +9659,8 @@ class ArwanosApp(ctk.CTk, CommandRouterMixin):
         root = Path(__file__).resolve().parent
         data_dir = root / ("data_test" if demo else "data")
         data_dir.mkdir(parents=True, exist_ok=True)
+        if demo:
+            self._seed_demo_data(root / "demo_seed", data_dir)
 
         # 1. Update app-level paths
         if not hasattr(self, "paths") or not isinstance(self.paths, dict):

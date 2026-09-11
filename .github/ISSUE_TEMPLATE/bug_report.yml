@@ -1,0 +1,56 @@
+name: 🐛 Bug report
+description: Something isn't working as it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Privacy first.** Arwanos handles very personal writing. **Do not paste real journal entries, conversations, memory facts, or unredacted logs.** Reproduce the problem in **Demo mode** if you can, and describe what happened in your own words.
+
+        If the bug could expose someone's personal data, **don't open a public issue** — see [SECURITY.md](../../SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: And what did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Switch to Demo mode
+        2. Run /lo ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Arwanos?
+      options:
+        - Installation or startup
+        - Companion (/lo) or memory
+        - Journal analysis (/analyze)
+        - Mental State Monitor
+        - Web app (journal, habits, reports)
+        - Voice
+        - Web search (/deep)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Platform, Python version, and model
+      placeholder: "e.g. Arch Linux, Python 3.12, llama3:8b-instruct-q4_K_M"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: Terminal output or tracebacks. **Remove any personal content before pasting.**
+      render: shell

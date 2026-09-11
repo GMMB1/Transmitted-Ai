@@ -1,722 +1,138 @@
 <div align="center">
-  <img src="Arwanos_icon.png" width="200" alt="Arwanos Logo"/>
+  <img src="Arwanos_icon.png" width="160" alt="Arwanos"/>
+
+  # Arwanos
+
+  **A private AI companion that reads your journal, remembers you,<br/>and helps you see your own patterns — running entirely on your machine.**
+
+  *Private. Offline. Yours.*
+
+  [![License: MIT](https://img.shields.io/badge/license-MIT-7c3aed.svg)](LICENSE)
+
+  [Quickstart](#quickstart) · [Features](#what-it-does) · [How it compares](#how-it-compares) · [Docs](#documentation) · [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md)
 </div>
 
-# Arwanos — Transmitted AI Personal Assistant
+---
 
-**Arwanos** is a locally-running AI assistant built in Python.  
-It runs entirely on your machine using **Ollama** as the inference backend — no data ever leaves your device, no cloud API is called for core reasoning.
+## Why Arwanos
 
-This project is part of **Transmitted AI** — a framework that goes beyond standard RAG and chatbot patterns by infusing psychological awareness, adaptive resource management, and behavioral analysis into a local AI system.
+You journal to understand yourself. AI can genuinely help with that — spotting the loop you keep repeating, the trigger you don't notice, the progress you can't see from the inside.
 
-> If any of this sparks your curiosity, feel free to reach out.
+But there's a gap:
+
+- **AI journaling apps** do this well, and send your most private writing to a cloud model to do it.
+- **Local LLM tools** keep your data at home, but they're general-purpose chat. They don't understand a journal, and they forget you between sessions.
+
+Arwanos is built for that gap. It reads your journal, analyses it for behavioural and emotional patterns, and talks with you like a friend who remembers — **and nothing ever leaves your computer.**
+
+Arwanos doesn't just chat. **It reads between the lines.**
+
+### Who it's for
+
+- **People who journal** and want real insight without handing their inner life to a cloud service
+- **Local-LLM users** looking for a genuinely personal use case beyond a chat window
+- **Developers and researchers** interested in long-term memory, retrieval, and psychology-aware prompting on small local models
 
 ---
 
-# What is Arwanos?
+## What it does
 
-Arwanos is a personal experiment turned full application. It can:
-
-- Analyze human behavior through streamed daily notes
-- Detect emotional triggers, patterns, and internal loops inside your journal
-- Provide a friendly web UI for entering daily notes with weekly and monthly analysis features
-- Provide psychological insights based on user entries
-- Retrieve relevant information from live web search + AI model
-- Improve response quality through session-based RAG
-- Route queries intelligently — simple questions answered instantly, complex ones automatically trigger web search
-
-Arwanos doesn't just chat.
-
-**Arwanos reads between the lines.**
-
----
-
-## ARM — Adaptive Resource Management
-
-Every query is **scored before the LLM is called**. This is what makes Arwanos different from a standard chatbot wrapper.
-
-### Complexity Scoring (0–3 per dimension)
-
-| Dimension | What it measures |
+| | |
 |---|---|
-| `search_need` | Does the query need live/external data? |
-| `context_need` | Does it need session history? |
-| `response_length` | How long should the answer be? |
-| `reasoning_steps` | How complex is the reasoning? |
+| 🧠 **Journal analysis** — `/analyze` | Reads your journal and reflects patterns back through six lenses: behavioural loops, emotional arc, avoidance, contradictions, growth, and relationships. |
+| 💟 **Companion with memory** — `/lo` | A conversational companion that remembers you. Extracts facts from what you tell it, recalls past conversations by meaning, and knows how long it's been since you last talked. |
+| 🧭 **Mental State Monitor** | Guided check-ins that adapt to your history and ask progressively deeper questions, backed by 7,557 locally indexed examples from professional psychology datasets. |
+| 📓 **Journal, habits & reports** | A local web app for daily entries, habit tracking, and weekly and monthly reflections. |
+| 🎤 **Voice** | Dictation and hands-free call mode, routed to the mode you choose, with noise-floor auto-calibration. *(Linux)* |
+| 🔍 **Adaptive search** — `/deep` | Scores each question before answering, and only reaches for live web search when a question actually needs it. |
 
-### Resource Budget (auto-assigned)
+<!--
+  SCREENSHOTS — take these in Demo mode (Settings → Data Folder → Demo) so no personal
+  data is in frame, save them to demo/, then remove this comment wrapper.
 
-| Level | Web Search | Context Items | Max Tokens |
+<p align="center">
+  <img src="demo/analyze.png"   width="49%" alt="Journal analysis"/>
+  <img src="demo/companion.png" width="49%" alt="Companion with memory"/>
+  <img src="demo/journal.png"   width="49%" alt="Journal web app"/>
+  <img src="demo/monitor.png"   width="49%" alt="Mental State Monitor"/>
+</p>
+-->
+
+---
+
+## Quickstart
+
+**You need:** Python 3.10+, [Ollama](https://ollama.com), and about 5 GB of disk for the model. A GPU is strongly recommended — development and testing use an NVIDIA RTX 4060 (8 GB VRAM). Linux is the primary platform.
+
+```bash
+git clone https://github.com/GMMB1/Transmitted-Ai.git
+cd Transmitted-Ai
+
+ollama pull llama3:8b-instruct-q4_K_M
+
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+python Arwanos_v10.py
+```
+
+The desktop app opens; click **Open Webui** for the journal at `http://127.0.0.1:5005/renderer`.
+
+**Want to look around first?** Switch to **Demo mode** in Settings. It runs on a separate folder pre-filled with a fictional journal and habit history, so you can try the analysis and companion features before writing anything of your own.
+
+Per-platform setup, GPU notes, voice requirements and troubleshooting: **[docs/INSTALL.md](docs/INSTALL.md)**
+
+---
+
+## How it compares
+
+| | **Arwanos** | Cloud AI journaling apps | General local LLM front-ends |
 |---|---|---|---|
-| 0 — simple | ✗ | 0 | 640 |
-| 1 — moderate | ✗ | 3 | 960 |
-| 2 — detailed | ✓ 3 results | 8 | 1280 |
-| 3 — complex | ✓ 7 results | 15 | 1600 |
-
-A simple factual question uses almost no resources. A complex research question automatically triggers web search and longer output — without the user configuring anything.
-
----
-
-## Special Internal Bypass
-
-I created a mechanism to write directly to the **stream data line** of the model by manipulating speech patterns.
-
-Think of it like this:
-
-> There's a wall you can't break from the front…  
->  
-> but you can climb over it, and lift others with you.
-
-That's exactly how the **/lo** + session-based syntax works.  
-It bypasses Llama's default restrictions in everything except the ultra-sensitive and ethically non-negotiable areas.
+| Where your writing goes | **Stays on your machine** | Sent to a cloud model | Stays on your machine |
+| Built around a journal | **Yes** | Yes | Generic document upload |
+| Behavioural pattern analysis | **Six analytical lenses** | Varies | No |
+| Remembers you across sessions | **Facts + semantic recall + time awareness** | Varies | Usually not |
+| Works offline | **Yes** | No | Yes |
+| Cost | **Free and open source** | Usually a subscription | Free |
 
 ---
 
-# Key Features
+## Privacy and safety
 
-### Lo (Companion Mode) & Permanent Memory
-`/lo` acts as a conversational companion with a permanent long-term memory system. After every conversation, it extracts new facts about you and stores them in a dedicated memory block. It also indexes all your past conversations using semantic vector search (ChromaDB). This allows it to recall very specific past topics naturally, without having to load the entire chat history into context at once. It is also **time-aware** — tracking conversation dates, understanding gaps between sessions, and seamlessly archiving older conversations so no memory is ever lost.
+**Your data never leaves your machine.** The model runs through Ollama on `127.0.0.1`. Your journal, memory, and conversations live in `data/`, which is gitignored and never uploaded. The only network access is optional live web search, and only for questions that need it.
 
-### Analyze Mode (`/analyze`)
-A psychologically-aware analysis engine.  
-Reads your private journal, extracts emotional patterns, detects behavioral loops, and reflects them back with intent detection across 6 analytical lenses:
+**Arwanos is a self-reflection tool, not a therapist or a crisis service.** It can help you notice patterns; it can't diagnose, treat, or keep you safe in an emergency. If you're in crisis, contact your local emergency services, or find a free helpline in your country at [findahelpline.com](https://findahelpline.com).
 
-| Query type | Analytical lens |
+Arwanos also declines requests in genuinely dangerous areas such as weapons capable of mass harm.
+
+---
+
+## Documentation
+
+| Guide | What's in it |
 |---|---|
-| "pattern", "trigger", "habit" | Behavioral Patterns |
-| "feel", "mood", "anxious" | Emotional Arc |
-| "avoid", "procrastinate" | Avoidance Patterns |
-| "contradict", "promise" | Contradictions |
-| "progress", "improve", "grow" | Growth Tracking |
-| "friend", "family", "alone" | Social / Relationship |
-
-### Deep Search (`/deep`)
-Forces a live web search regardless of ARM complexity score — use this when you know you need fresh, sourced information. Returns numbered results with titles, URLs, and a synthesized answer.
-
-### Session RAG (`/rag`)
-Searches an imported JSON session using a keyword inverted index built at import time. Lookup is near-instant even for 200+ turn sessions — O(query keywords), not O(session size).
-
-### Unified Command Router
-
-| Command | Function |
-|---|---|
-| `/lo <text>` | Enhanced emotional response mode |
-| `/analyze <query>` | Psychological journal analysis |
-| `/deep <question>` | Forced live web search |
-| `/rag <question>` | Search imported session |
-| `/vo /lo <text>` | Companion mode + text-to-speech voice output |
-| `/webui start` | Launch local web interface |
-
-### Hybrid UI
-Runs as a modern Desktop App (CustomTkinter) or a full local Web Application (Flask). All data stays on `127.0.0.1` — nothing is sent to external servers.
-
-### Voice Interface & Dictation
-Arwanos supports voice dictation and hands-free voice calls. It features a built-in mode picker allowing you to route voice queries directly into `/lo`, `/analyze`, or `/deep`. It also includes VAD (Voice Activity Detection) auto-calibration that intelligently adapts to your room's background noise, knowing exactly when you naturally pause speaking.
+| [Installation & troubleshooting](docs/INSTALL.md) | Per-platform setup, GPU configuration, configuration reference, desktop launcher, Windows `.exe` build |
+| [Architecture](docs/ARCHITECTURE.md) | ARM adaptive resource management and the full command reference |
+| [Mental State Monitor](docs/MENTAL_STATE_MONITOR.md) | The ML pipeline, question generation, anti-duplication, and dataset setup |
 
 ---
 
-# Installation
+## Get involved
 
-## Prerequisites
+Arwanos began as a personal experiment and grew into a full application. It's at the stage where **feedback from real users shapes what comes next.**
 
-- **Python 3.10+**
-- **Ollama** installed and running — [ollama.ai](https://ollama.ai)
-- A local model (e.g. `llama3:8b` or `llama3.1`)
-- Supported platforms: Linux, Windows, macOS
-
-```bash
-ollama pull llama3:8b
-# or
-ollama pull llama3.1
-```
-
-Verify Ollama is running:
-```bash
-ollama list       # lists your downloaded models
-ollama serve      # start manually if not already running
-```
-
-> **GPU acceleration — important:**  
-> By default Ollama may not pick up your GPU. To make sure it runs on your NVIDIA (or other) GPU, start it like this:
-> ```bash
-> CUDA_VISIBLE_DEVICES=0 ollama serve > /dev/null 2>&1 &
-> ```
-> `CUDA_VISIBLE_DEVICES=0` tells the driver to use your first GPU. Change to `1`, `2`, etc. for a different card.  
-> Omit `> /dev/null 2>&1 &` if you want to see the Ollama logs in the terminal.  
-> On Windows, set the environment variable before starting: `set CUDA_VISIBLE_DEVICES=0` then `ollama serve`.
+- 💬 **Tried it?** [Share how it went](https://github.com/GMMB1/Transmitted-Ai/issues/new?template=feedback.yml) — even two sentences helps
+- 🐛 **Found a bug?** [Report it](https://github.com/GMMB1/Transmitted-Ai/issues/new?template=bug_report.yml)
+- 💡 **Have an idea?** [Suggest a feature](https://github.com/GMMB1/Transmitted-Ai/issues/new?template=feature_request.yml)
+- 🛠️ **Want to contribute?** Start with the [contributing guide](CONTRIBUTING.md) and the [roadmap](ROADMAP.md)
 
 ---
 
-## System-Level Packages
+## About
 
-> These are **OS-level** dependencies — install with your system package manager, **not** pip.  
-> Some features degrade gracefully if missing.
+Arwanos is the reference implementation of **Transmitted AI** — an approach to local AI that combines psychological awareness, adaptive resource management, and behavioural analysis. Read the idea behind it: [Transmitted AI with Psychological Awareness](https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f).
 
-### Linux — Debian / Ubuntu / Mint
+Built by **GMM** · [GitHub](https://github.com/GMMB1) · [Support the project on Ko-fi](https://ko-fi.com/ghostman77506)
 
-```bash
-sudo apt install python3-tk
-sudo apt install pulseaudio-utils    # audio fallback (paplay)
-sudo apt install alsa-utils           # alternative audio (aplay)
-sudo apt install libfribidi0          # Arabic/RTL shaping
-sudo apt install default-jre          # only if using language_tool_python
-```
-
-### Linux — Fedora / RHEL / CentOS
-
-```bash
-sudo dnf install python3-tkinter pulseaudio-utils java-latest-openjdk
-```
-
-### macOS
-
-```bash
-brew install python-tk
-brew install --cask temurin    # Java, only for language_tool_python
-# Audio: built-in afplay, no extra steps needed
-```
-
-### Windows
-
-```
-✔ Tkinter  — included in the standard python.org installer
-✔ Audio    — winsound is built-in
-✔ Java     — https://adoptium.net (only for language_tool_python)
-
-⚠ Tick "Add Python to PATH" during installation.
-⚠ Run terminal as Administrator if pip gives permission errors.
-```
-
-> **Audio player priority (all platforms):**  
-> `pygame` → `winsound` (Windows) → `playsound` → `paplay` → `aplay` → `afplay`
-
----
-
-## Install Python Dependencies
-
-```bash
-# Create virtual environment
-python -m venv .venv
-
-# Activate — Linux / macOS
-source .venv/bin/activate
-
-# Activate — Windows CMD
-.venv\Scripts\activate.bat
-
-# Activate — Windows PowerShell
-.venv\Scripts\Activate.ps1
-```
-
-Then install:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Optional extras
-
-| Package | What it enables |
-|---|---|
-| `pygame` | Cross-platform audio (dragon sounds) |
-| `playsound` | Lightweight audio fallback |
-| `spacy` | NLP / language detection |
-| `nltk` | Tokenization |
-| `pdfplumber` | Import PDF files into sessions |
-| `language_tool_python` | Grammar check (needs Java 8+) |
-
----
-
-## Configuration
-
-Open `config.json` in the root folder and edit it directly:
-
-```json
-{
-  "model_name": "llama3:8b-instruct-q4_K_M",
-  "ollama_settings": {
-    "temperature": 0.2
-  },
-  "demo_mode": false,
-  "username": "GMM"
-}
-```
-
-**`username`** — your name or handle. Arwanos uses it throughout prompts and the web UI to personalize responses.
-
-**`demo_mode`** — when set to `true`, Arwanos loads from `data_test/` instead of `data/`, keeping demo runs isolated from your real journal and sessions. Leave it `false` for normal use.
-
-**To change the model** — replace the `model_name` value with any model you have pulled in Ollama:
-
-```json
-"model_name": "llama3.1:8b"
-"model_name": "mistral:7b"
-"model_name": "gemma2:9b"
-"model_name": "qwen2.5:7b"
-"model_name": "deepseek-r1:8b"
-```
-
-Just run `ollama list` to see all models available on your machine, pick one, paste the name in, save the file, and restart Arwanos.
-
-```bash
-ollama list          # see what you have
-ollama pull mistral  # pull a new one if needed
-```
-
-**To change the temperature** — controls how creative vs focused the responses are:
-
-| Value | Behavior |
-|---|---|
-| `0.1` | Very focused, deterministic |
-| `0.2` | Default — balanced *(recommended)* |
-| `0.5` | More creative, varied responses |
-| `0.8` | Very creative, less predictable |
-
----
-
-## Sound Toggle
-
-The dragon animation sound is **muted by default**.  
-Find this near the top of `utils.py`:
-
-```python
-ARWANOS_SOUND_ENABLED: int = 1   # 0 = play | 1 = mute
-```
-
-| Value | Meaning |
-|---|---|
-| `0` | Sound ON — dragon roar plays on startup and on the dragon button |
-| `1` | Sound OFF — completely silent *(default)* |
-
----
-
-## Linux Desktop Launcher (optional)
-
-`arwanos_launcher.sh` is a shell launcher for Linux desktop environments. Before starting Arwanos it:
-
-- Detects your NVIDIA GPU and VRAM
-- Checks whether Ollama is running on GPU or CPU
-- Starts Ollama automatically if it is offline (with `CUDA_VISIBLE_DEVICES=0`)
-- Shows a `zenity` dialog with GPU status and the current model before launch
-- Writes a timestamped startup log to `logs/arwanos_startup.log`
-
-To use it, make it executable once:
-
-```bash
-chmod +x arwanos_launcher.sh
-./arwanos_launcher.sh
-```
-
-> **Note:** The script expects your virtual environment at `.venv/`. If you named yours differently, edit the `source .venv/bin/activate` line near the bottom of the script.  
-> `zenity` must be installed (`sudo apt install zenity` on Debian/Ubuntu).
-
----
-
-## Run Arwanos
-
-```bash
-python Arwanos_v10.py
-```
-
-Arwanos opens in desktop mode.  
-Access the web UI by clicking **Open Predictive** inside the app, or directly:
-
-```
-http://127.0.0.1:5005/renderer
-```
-
----
-
-## Build Arwanos.exe (Windows)
-
-```bash
-pip install pyinstaller
-
-# Folder build — faster startup (recommended)
-python build.py
-
-# Single .exe — easier to share
-python build.py --onefile
-```
-
-Output: `dist/Arwanos/Arwanos.exe`  
-The icon (`Arwanos_icon.ico`) and all assets are bundled automatically.
-
-> Ollama must still be installed and running separately on the target machine.
-
----
-
-# Usage
-
-## Standard Chat
-
-Just type. Arwanos will automatically:
-- Score the query with ARM
-- Decide whether to search the web
-- Pull session context if relevant
-- Return a response scaled to the query's complexity
-
-> `what is` → brief answer + web sources  
-> `give me` → detailed information  
-> `compare`, `how to`, `fact` → structured, in-depth response
-
----
-
-## Psychological Analysis
-
-```
-/analyze <your query>
-```
-
-Example:
-```
-/analyze what patterns do I keep repeating when I'm stressed?
-```
-
-Arwanos will:
-- Read your `psychoanalytical.json` journal
-- Extract entries relevant to your question
-- Detect emotional shifts, behavioral contradictions, and subconscious patterns
-- Respond like a close friend who has read your diary
-
-For conversational mode (talks *with* you):
-```
-/lo <your thought>
-```
-
----
-
-
-
----
-
-# A Note on Safety
-
-Arwanos will **not** operate in extremely sensitive areas (nuclear, WMD, or other real-world danger zones).
-
-It supports:
-- Security researchers and students
-- Psychological analysis and self-reflection
-- Study session organization and RAG-based learning
-
----
-
-# Mental State Monitor — ML-Powered Self-Analysis
-
-The **Mental State Monitor** is the most advanced feature in Arwanos v10.  
-It transforms the application from a journaling assistant into an intelligent psychological monitoring system that learns from your history, adapts to your patterns, and asks increasingly precise questions over time.
-
-Access it by clicking **🧭 Monitor** in the web UI action bar — it opens as a dedicated page in the same browser.
-
----
-
-## How It Works — The Full ML Pipeline
-
-### Phase 1 — Tuning (on every new session)
-
-When you click **Start Session**, Arwanos does not just generate random questions.  
-It first performs a full tuning pass over **all your data**:
-
-- Reads **every journal entry** you have ever written (not just recent ones)
-- Reads the **complete habits history** — total success/failure counts, failure dates, patterns
-- Reads the **analyzed.json** deep conversation transcript (up to 5,000 characters)
-- Reads **all past monitor session insights** — the distilled analysis from previous check-ins
-- Reads **past journal cross-reference inferences** — what past sessions revealed when answers were compared against journal history
-
-The LLM synthesizes all of this into a **psychological profile**:
-
-```json
-{
-  "dominant_themes": ["..."],
-  "recurring_patterns": ["..."],
-  "habit_struggles": ["..."],
-  "mood_trend": "...",
-  "unresolved_tensions": ["..."],
-  "unexplored_areas": ["..."],
-  "strengths": ["..."]
-}
-```
-
-This profile becomes the foundation for every question generated.
-
----
-
-### Phase 2 — Question Generation (3 training sources)
-
-Questions are generated using **three simultaneous training sources** — all cross-referenced before any question is written:
-
-| Source | What it contains |
-|---|---|
-| **Source A** — `analyzed.json` | Deep conversation transcript revealing your core patterns |
-| **Source B** — Monitor session history | Every answer you gave in past check-ins + AI insights from those sessions |
-| **Source C** — Professional psychology datasets | 7,557 real examples from licensed therapists and counselors |
-
-Source C is not generic — it is **keyword-searched** using your profile themes and inferences, so only the most relevant professional examples are pulled in.
-
----
-
-### Phase 3 — Insight Pipeline (after you answer)
-
-After answering the session questions, a **3-phase analysis pipeline** runs:
-
-**Phase 1 — Journal Cross-Reference**  
-Your answers are compared against **all your journal entries**.  
-The LLM finds:
-- `confirmed_patterns` — what your answers confirm that journals already showed
-- `contradictions` — where what you said today conflicts with what journals show
-- `new_revelations` — insights only visible by comparing both sources together
-- `progression` — what has moved forward since older entries
-- `key_inference` — one sentence capturing the most important finding
-
-**Phase 2 — Dataset Enrichment**  
-The inferences from Phase 1 (not the raw answers) become the keyword search signal against the 7,557 professional examples — producing far more precise therapeutic references than searching on answer text alone.
-
-**Phase 3 — Final Insights**  
-The LLM generates 4 focused paragraphs using all three phases combined:
-1. What today's answers confirm or contradict in the journal history
-2. The most significant new revelation from cross-referencing
-3. What skipped questions signal and how they connect to confirmed patterns
-4. One specific, actionable step for tomorrow grounded in the key inference
-
----
-
-## Anti-Duplication System
-
-Questions never repeat across sessions. A three-layer programmatic check runs after every generation:
-
-| Layer | What it catches |
-|---|---|
-| **Character n-gram similarity** (≥ 0.22) | Morphological variants — `strategies` / `strategy`, `emotional` / `emotionally` |
-| **Named entity overlap** (≥ 2 shared) | Same real-world subject — person names, exam codes, named habits |
-| **Key noun overlap** (≥ 3 shared) | Same topic domain even with completely different wording |
-
-If any generated question is flagged, a **targeted second LLM call** regenerates only that question with explicit instructions to explore different territory. The prompt also includes a per-category **covered-topics map** — extracted keywords from every past question grouped by category — so the LLM knows exactly which ground is already exhausted.
-
----
-
-## Angle Rotation — Questions Deepen Over Time
-
-Each category has 5 dimensions that rotate with session count:
-
-| Session | `emotional_awareness` explores... | `avoidance_detection` explores... |
-|---|---|---|
-| #1 | what the emotion actually is | what exactly is being avoided |
-| #2 | where it originates | the real cost of continued avoidance |
-| #3 | how it drives decisions | what you fear finding if you look |
-| #4 | when it first appeared | the smallest step toward it |
-| #5 | what consistently triggers it | when this avoidance pattern started |
-| #6+ | cycle repeats — with full history to reference | ... |
-
-Depth also scales with session count: early sessions establish baseline awareness, mid-range sessions probe gaps between what you say and what journals show, deep sessions challenge resistance to change directly.
-
----
-
-## Psychology Datasets
-
-Three public datasets are embedded and locally indexed:
-
-| Dataset | Hugging Face ID | Entries |
-|---|---|---|
-| **CounselChat** | `nbertagnolli/counsel-chat` | 2,749 |
-| **Mental Health Counseling Conversations** | `Amod/mental_health_counseling_conversations` | 3,508 |
-| **ESConv** (ACL 2021) | `thu-coai/esconv` | 1,300 |
-
-**Total: 7,557 professional examples** — keyword-searched at session start and at insight generation, matched to your specific patterns, not used as generic templates.
-
-These datasets are **not included in the repository** (they belong in your local `data/` folder which is gitignored for privacy). Use the setup script below to download and index them automatically.
-
----
-
-## Dataset Setup — One Command
-
-> **This step is required for the Mental State Monitor to work.**  
-> Without `data/psych_datasets_index.json`, the ML pipeline has no professional reference material.
-
-### Step 1 — Install the datasets library
-
-```bash
-pip install datasets
-```
-
-> Already included if you ran `pip install -r requirements.txt` — the `datasets` package from Hugging Face is listed there.
-
-### Step 2 — Run the build script
-
-```bash
-python build_datasets.py
-```
-
-That's it. The script will:
-
-1. Download **CounselChat** from `nbertagnolli/counsel-chat`
-2. Download **Mental Health Counseling Conversations** from `Amod/mental_health_counseling_conversations`
-3. Download **ESConv** from `thu-coai/esconv`
-4. Process all three into a unified keyword-indexed format
-5. Save the result as `data/psych_datasets_index.json`
-
-Expected output:
-
-```
-Downloading CounselChat (nbertagnolli/counsel-chat)…
-  ✓ 2749 entries
-Downloading Mental Health Counseling Conversations…
-  ✓ 3508 entries
-Downloading ESConv (thu-coai/esconv)…
-  ✓ 1300 entries
-
-✅ Done — 7,557 total entries
-   Saved → /your/path/Arwanos-v10/data/psych_datasets_index.json
-
-Breakdown by source:
-   counsel_chat                          2749
-   mental_health_counseling              3508
-   esconv                                1300
-```
-
-> **No account or API key required** — all three datasets are publicly available on Hugging Face.  
-> The download requires ~50 MB of disk space and a one-time internet connection.  
-> After the script completes, the Monitor works **100% offline**.
-
-### What the index looks like
-
-Each entry in `psych_datasets_index.json` follows this format:
-
-```json
-{
-  "source": "counsel_chat",
-  "topic": "depression",
-  "context": "The client's question or situation...",
-  "response": "The therapist's or counselor's response...",
-  "keywords": ["anxiety", "depression", "patterns", "avoidance", "..."]
-}
-```
-
-The Monitor searches this index using your psychological profile keywords — it never uses these as generic templates. Every example pulled is matched specifically to your current patterns and session inferences.
-
----
-
-## How the Web UI Combines Everything
-
-When you click **🧭 Monitor** in the web UI sidebar:
-
-```
-Your journal + habits history
-         ↓
-   LLM builds your psychological profile
-         ↓
-   Profile keywords → search psych_datasets_index.json
-         ↓
-   3 most relevant professional examples per theme (Source C)
-         ↓
-   LLM generates questions using: your data + past sessions + professional examples
-         ↓
-   You answer in the browser
-         ↓
-   Answers cross-referenced against your full journal history
-         ↓
-   Dataset searched again using inference keywords (not raw answers)
-         ↓
-   Final insights: 4 paragraphs + one actionable step
-         ↓
-   Saved to data/monitor_sessions.json → fed into next session's tuning
-```
-
-The datasets power **Source C** in this pipeline — they provide the professional therapeutic vocabulary and response patterns that the LLM uses to frame questions and enrich insights. Your personal data never leaves your machine.
-
-All datasets are stored locally in `data/` — no external API calls after setup.
-
----
-
-## Progress Tracking
-
-The monitor tracks cumulative engagement across sessions:
-
-- **Topic progress bars** — how often each psychological category was engaged vs skipped
-- **Average mood shift** — tracks whether sessions correlate with mood improvement over time
-- **Journal inferences feed-forward** — each session's cross-reference findings are stored and fed back into the next session's tuning phase, making the system progressively more precise
-- **Session history** — full Q&A + AI insights for every completed session, viewable in the browser
-
----
-
-# What Makes Arwanos Different
-
-| Feature | Arwanos | Typical chatbot |
-|---|---|---|
-| Privacy | 100% local, no cloud | Cloud API, data sent to servers |
-| Web search | ARM-adaptive — only when needed | Always on or always off |
-| Psychoanalysis | Reads private journal, intent-aware | No personal data |
-| Session RAG | Keyword-indexed, near-instant lookup | Full re-scan every query |
-| Resource control | Per-query ARM budget | Fixed context / token limit |
-| **Mental State Monitor** | **ML tuning + 3-source training + anti-duplication** | **No equivalent** |
-| **Psychology datasets** | **7,557 professional examples, locally indexed** | **No equivalent** |
-| **Journal cross-reference** | **Answers compared against full journal history** | **No equivalent** |
-
----
-
-# Common Issues
-
-## `ModuleNotFoundError` (any module)
-
-Always use a virtual environment:
-
-### Windows (PowerShell)
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python Arwanos_v10.py
-```
-
-### Windows (CMD)
-
-```bat
-python -m venv .venv
-.venv\Scripts\activate.bat
-pip install -r requirements.txt
-python Arwanos_v10.py
-```
-
-### Linux / macOS
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python Arwanos_v10.py
-```
-
----
-
-## Ollama not found / model not responding
-
-```bash
-ollama serve
-ollama list
-ollama pull llama3.1
-```
-
----
-
-# Enjoy Exploring the Potential
-
-This is not just a chatbot. It's a blueprint for:
-
-- AI behavioral analysis
-- Psychological context infusion
-- Intelligent RAG manipulation
-- Internal bypass engineering
-- Human-aware Transmitted AI systems
-- Natural language processing experiments
-
-If you want more clarification, deeper breakdowns, or advanced discussion — reach out.
-
----
-
-**Author:** GMM  
-**GitHub:** [GMMB1](https://github.com/GMMB1)  
-**Support:** [ko-fi.com/ghostman77506](https://ko-fi.com/ghostman77506)
-
-**Learn more about Transmitted AI:**  
-[Transmitted AI with Psychological Awareness](https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f)
+Released under the [MIT License](LICENSE).
