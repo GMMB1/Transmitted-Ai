@@ -9,7 +9,7 @@
 
   [![License: MIT](https://img.shields.io/badge/license-MIT-7c3aed.svg)](LICENSE)
 
-  [Quickstart](#quickstart) · [Features](#what-it-does) · [How it compares](#how-it-compares) · [Docs](#documentation) · [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md)
+  [Quickstart](#quickstart) · [Features](#what-it-does) · [How it compares](#how-it-compares) · [Docs](#documentation) · [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Support](#support)
 </div>
 
 ---
@@ -126,10 +126,21 @@ Arwanos began as a personal experiment and grew into a full application. It's at
 
 ---
 
-## About
+## Learn more
 
-Arwanos is the reference implementation of **Transmitted AI** — an approach to local AI that combines psychological awareness, adaptive resource management, and behavioural analysis. Read the idea behind it: [Transmitted AI with Psychological Awareness](https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f).
+Arwanos is the reference implementation of **Transmitted AI** — an approach to local AI that combines psychological awareness, adaptive resource management, and behavioural analysis.
 
-Built by **GMM** · [GitHub](https://github.com/GMMB1) · [Support the project on Ko-fi](https://ko-fi.com/ghostman77506)
+- 📖 **Deep dive:** [Arwanos v10 — the Mental State Monitor and ML pipeline](https://gmmdev.online/my-thoughts/arwanos-v10-the-mental-state-monitor-and-ml-pipeline) — how the monitor learns from your history and asks sharper questions over time
+- 📝 **The idea behind it:** [Transmitted AI with Psychological Awareness](https://medium.com/python-in-plain-english/transmitted-ai-with-psychological-awareness-c6369cce8b8f)
+
+## Support
+
+Arwanos is free and open source, built by one person. If it's useful to you, you can help keep it going:
+
+<a href="https://ko-fi.com/ghostman77506"><img src="https://img.shields.io/badge/Support%20on-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"/></a>
+
+---
+
+Built by **GMM** · [Website](https://gmmdev.online) · [GitHub](https://github.com/GMMB1) · [Ko-fi](https://ko-fi.com/ghostman77506)
 
 Released under the [MIT License](LICENSE).
